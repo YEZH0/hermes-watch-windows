@@ -1,0 +1,62 @@
+Subject: [PATCH] isideload: give watchOS App IDs the App Group too
+
+Upstream `Sideloader::sign_app` iterates over every App ID created for the IPA,
+but skips the ones that belong to the watch app:
+
+    for app_id in app_ids.iter_mut() {
+        if watch_bundle_ids.contains(&app_id.identifier) {
+            continue;                       // <-- watch App ID never touched
+        }
+        app_id.ensure_group_feature(...).await?;      // APG3427HIY
+        self.dev_session.assign_app_group(..., None).await?;
+        ...
+    }
+
+Consequences on a sideloaded watchOS companion:
+
+  * the watch App ID never gets the App Groups capability (APG3427HIY)
+  * no `group.*` identifier is assigned to it
+  * the provisioning profile generated for the watch bundle therefore has no
+    `com.apple.security.application-groups` entitlement
+  * at runtime the watch app has an empty `GroupContainers` and dies with
+    "An App Group ID may be missing" when it touches the shared container
+
+Fix: treat watch App IDs like any other, but tag the Developer API calls with
+`DeveloperDeviceType::Watchos` so that `DTDK_Platform=watchos` is added to the
+request body. Without that marker Apple cannot resolve a watch App ID and the
+update fails.
+
+`DeveloperDeviceType` is already imported in this file, and both
+`ensure_group_feature` (app_ids.rs) and `assign_app_group` (app_groups.rs)
+already accept `impl Into<Option<DeveloperDeviceType>>` upstream, so this is a
+single-hunk change with no other source edits.
+
+diff --git a/iloader-main/vendor/isideload/isideload/src/sideload/sideloader.rs b/iloader-main/vendor/isideload/isideload/src/sideload/sideloader.rs
+--- a/iloader-main/vendor/isideload/isideload/src/sideload/sideloader.rs
++++ b/iloader-main/vendor/isideload/isideload/src/sideload/sideloader.rs
+@@ -151,16 +151,20 @@
+             .await?;
+ 
+         for app_id in app_ids.iter_mut() {
+-            if watch_bundle_ids.contains(&app_id.identifier) {
+-                continue;
+-            }
++            // PATCH: watch App IDs must also receive the App Group, otherwise a
++            // sideloaded watchOS companion cannot reach its shared container.
++            let device_type = if watch_bundle_ids.contains(&app_id.identifier) {
++                Some(DeveloperDeviceType::Watchos)
++            } else {
++                None
++            };
+ 
+             app_id
+-                .ensure_group_feature(&mut self.dev_session, &team)
++                .ensure_group_feature(&mut self.dev_session, &team, device_type.clone())
+                 .await?;
+ 
+             self.dev_session
+-                .assign_app_group(&team, &app_group, app_id, None)
++                .assign_app_group(&team, &app_group, app_id, device_type)
+                 .await?;
+ 
+             if increased_memory_limit {

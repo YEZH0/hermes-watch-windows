@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>HermesFixGui</AssemblyName>
+    <RootNamespace>HermesFix</RootNamespace>
+    <Version>1.2.0</Version>
+    <Product>爱马仕表盘助手</Product>
+    <AssemblyTitle>HermesEnabler 签名助手</AssemblyTitle>
+    <Company>hermes-watch-windows</Company>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
+
+  <!-- 把签名引擎内嵌进来，成品就是一个 exe，别人不用再找第二个文件。
+       构建机上没有该文件时静默跳过，程序会退回"用外部 hermesfix.exe"。 -->
+  <ItemGroup Condition="Exists('..\bin\hermesfix.exe')">
+    <EmbeddedResource Include="..\bin\hermesfix.exe" LogicalName="hermesfix.exe" />
+  </ItemGroup>
+
+  <!-- tests/ 下有独立的测试工程，不能被主工程顺手编译进来 -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <None Remove="tests/**" />
+    <Page Remove="tests/**" />
+  </ItemGroup>
+
+</Project>

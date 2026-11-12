@@ -1,0 +1,27 @@
+# 构建产物
+target/
+*.pdb
+*.d
+
+# .NET（gui/）构建产物
+gui/**/bin/
+gui/**/obj/
+gui/testdata/
+publish/
+
+# 运行时日志
+*.log
+!docs/*.log
+
+# 二进制/敏感产物：绝不入库
+*.ipa
+*.app/
+*.mobileprovision
+signed*.ipa
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+bin/hermesfix.log

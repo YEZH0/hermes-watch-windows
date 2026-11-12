@@ -1,0 +1,105 @@
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace HermesFix;
+
+/// <summary>
+/// 定位签名引擎。优先用内嵌在界面程序里的那一份（解出来放到 LocalAppData），
+/// 这样别人只需要一个 exe；找不到内嵌资源时退回"同目录 / 上级目录里的 hermesfix.exe"。
+/// </summary>
+internal static class Engine
+{
+    private const string ResourceName = "hermesfix.exe";
+
+    public static bool HasEmbedded =>
+        Assembly.GetExecutingAssembly().GetManifestResourceInfo(ResourceName) is not null;
+
+    /// <summary>把内嵌引擎释放到磁盘，返回可执行文件路径。失败返回 null。</summary>
+    public static string? ExtractEmbedded()
+    {
+        try
+        {
+            var asm = Assembly.GetExecutingAssembly();
+            using var stream = asm.GetManifestResourceStream(ResourceName);
+            if (stream is null) return null;
+
+            var version = asm.GetName().Version?.ToString() ?? "0";
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HermesWatch", "engine", "v" + version);
+            Directory.CreateDirectory(dir);
+
+            var target = Path.Combine(dir, ResourceName);
+            var marker = target + ".sha256";
+
+            var hash = Hash(stream);
+            if (File.Exists(target)
+                && new FileInfo(target).Length == stream.Length
+                && File.Exists(marker)
+                && File.ReadAllText(marker, Encoding.ASCII).Trim() == hash)
+            {
+                return target;
+            }
+
+            // 内容不一致（或首次运行）就重新释放
+            stream.Position = 0;
+            var temp = target + ".tmp";
+            using (var output = File.Create(temp))
+                stream.CopyTo(output);
+            File.Move(temp, target, overwrite: true);
+            File.WriteAllText(marker, hash, Encoding.ASCII);
+            return target;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>同目录 / 上级 6 层里的 hermesfix.exe，用于没有内嵌资源的构建。</summary>
+    public static string? ProbeBeside()
+    {
+        var dir = AppContext.BaseDirectory;
+        var candidates = new List<string> { Path.Combine(dir, ResourceName) };
+        for (int up = 1; up <= 6; up++)
+        {
+            var root = dir;
+            for (int i = 0; i < up; i++) root = Path.GetFullPath(Path.Combine(root, ".."));
+            candidates.Add(Path.Combine(root, ResourceName));
+            candidates.Add(Path.Combine(root, "bin", ResourceName));
+        }
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    /// <summary>先试内嵌，再试磁盘；都没有返回 null。</summary>
+    public static string? Resolve() => ExtractEmbedded() ?? ProbeBeside();
+
+    public static string Hash(Stream stream)
+    {
+        using var sha = SHA256.Create();
+        var bytes = sha.ComputeHash(stream);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    public static string HashFile(string path)
+    {
+        using var fs = File.OpenRead(path);
+        return Hash(fs);
+    }
+
+    /// <summary>释放到磁盘后的大小，用于自检展示。</summary>
+    public static long EmbeddedLength
+    {
+        get
+        {
+            try
+            {
+                using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName);
+                return s?.Length ?? 0;
+            }
+            catch { return 0; }
+        }
+    }
+}
