@@ -1,0 +1,8 @@
+# 全部按字节原样存取。
+# 补丁 scripts 里的 .patch 要求 LF，Git 的自动换行转换会让 git apply 失败。
+* -text
+
+*.exe binary
+*.dll binary
+*.png binary
+*.ipa binary

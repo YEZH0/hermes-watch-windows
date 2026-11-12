@@ -1,0 +1,8 @@
+HermesEnabler.ipa
+  size    : 944867 bytes
+  sha256  : 53a14e7e431f9c4e1b39aca76852f1a1207d551d489fc0d3a72791e0ad9b01bb
+  source  : https://github.com/pookjw/HermesEnabler/releases/tag/1.5.1
+  asset   : HermesEnabler.ipa
+
+本仓库不分发该 IPA。请自行下载后核对上面的哈希。
+哈希不一致就不要用——签名工具的输入必须是这个版本，否则 bundle id 可能对不上。
