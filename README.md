@@ -55,6 +55,26 @@ flowchart TD
 
 ---
 
+## 下载
+
+去 **[Releases](https://github.com/YEZH0/hermes-watch-windows/releases)** 挑一个：
+
+| 文件 | 大小 | 需要装 .NET 吗 |
+| --- | --- | --- |
+| **HermesFixGui-standalone.exe** | 68 MB | **不需要**，双击就跑 |
+| HermesFixGui.exe | 26 MB | 需要 .NET 9 桌面运行时（x64） |
+
+不确定就下第一个。自包含、免安装、不写注册表、不要管理员权限。
+
+```
+SHA-256（standalone）: 9d8476916acb745057b7a9636693ea117bd77135b43724345984f9add0c5eb49
+```
+
+> 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
+> 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。
+
+---
+
 ## 快速使用
 
 两种方式**前置条件相同**：iPhone 用数据线连电脑并已信任；手表与 iPhone 已配对、同一 Wi-Fi；
@@ -67,7 +87,8 @@ flowchart TD
 
 ![图形界面](docs/images/gui.png)
 
-`bin\HermesFixGui.exe` 是**单个文件**，签名引擎已经内嵌在里面（首次启动释放到 `%LOCALAPPDATA%\HermesWatch`）。三步：
+`HermesFixGui-standalone.exe` 是**单个文件**，签名引擎已经内嵌在里面（首次启动释放到
+`%LOCALAPPDATA%\HermesWatch`，带 SHA-256 校验）。三步：
 
 1. 选 `HermesEnabler.ipa`（也可以直接把文件拖进窗口）
 2. 填 Apple ID 与密码
@@ -81,8 +102,9 @@ iPhone 连接服务、Anisette 服务，以及一项如实标注「需人工」�
 
 界面上方四个进度块对应引擎的四个阶段，状态栏会显示当前卡在哪一步。中途可以「停止」（会连子进程一起结束）。
 
-- 单文件仍需 **.NET 9 桌面运行时**（约 40 MB，一次装好）。要完全免安装，跑 `scripts\build-gui.cmd`
-  最后一条命令，产出约 68 MB 的自包含单文件
+- 两个版本功能一样：`standalone`（68 MB）自带运行时，`HermesFixGui.exe`（26 MB）需要
+  **.NET 9 桌面运行时**（约 55 MB，一次装好）。要自己产 standalone，跑 `scripts\build-gui.cmd`
+  最后一条命令
 - 源码在 `gui/`，`dotnet build` 即可，**零第三方 NuGet 依赖**
 
 ### 方式二：命令行
