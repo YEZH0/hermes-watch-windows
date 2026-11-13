@@ -69,8 +69,8 @@ flowchart TD
 当前版本 **v1.5.1**：
 
 ```
-SHA-256（standalone）: 2ed5be93137c58ae09cba8288149f2720d46fae189aca36b555b12f54361ee54
-SHA-256（28 MB）    : 3e308486a56f2c5c482ffe7db85c775416140adcf678717415357197736a224c
+SHA-256（standalone）: 440d53c88b45b4f2d1866e29ed01c8cfa680b76af3ccd49968f3e1e3c8e6b811
+SHA-256（28 MB）    : d3f56c7889929b5da273760e3edd589beac9e6810daf27d5d6729cd98d609cb4
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
@@ -96,7 +96,19 @@ SHA-256（28 MB）    : 3e308486a56f2c5c482ffe7db85c775416140adcf678717415357197
 > - 配对记录存在 `%LOCALAPPDATA%\HermesWatch\pairing\`（`phone-<UDID>.plist` /
 >   `watch-<手表ID>.plist` + 固定的 `host-id.txt`），用 icacls 收到当前用户，
 >   **不进日志、不上传**。删掉这个目录等于「忘记这台电脑」，下次会重新问一遍。
-> - 引擎版本 **1.5.1**（`hermesfix.exe` 的 SHA-256 变成 `5a9e5390`）。
+> - 引擎版本 **1.5.1**（`hermesfix.exe` 的 SHA-256 是 `aa6cd9eb`）。
+>
+> **同一版里还修了「一直连不上手表」的真正原因。** 之前每次检测都停在
+> `device socket io failed`，看起来像手表没连上，其实是两处连接用法错了：
+>
+> | 错在哪 | 后果 | 现在 |
+> | --- | --- | --- |
+> | iPhone 的 `companion_proxy` **一条连接只答一条命令**，我们却在同一条连接上连发三条 | 第二条就断，真正要用的「转发手表 lockdown 端口」永远发不出去 | 每条命令一条新连接（和 iLoader 一致） |
+> | 转发出来的端口**一次只服一条连接**，卡住的那条会把端口堵死 | 后一条能握手、写不进数据 | 每次尝试重新转发，不重复用旧端口 |
+>
+> 顺带把「手表没回话」和「手表不认这台电脑」分开了：只有 `InvalidHostID` 才会去
+> 弹「信任」；一句都没答就直说是 iPhone 到手表这一段没通，并给出该做的三件事。
+> 手表刚被蓝牙唤醒时第一个请求经常丢，所以静默的情况会自动换条转发再问一次。
 >
 > 另外修了两处会让人误判的文案：手表锁着却提示「戴在手上、放充电器上」的语病改成
 > 「保持 iPhone 和手表解锁」；转发端口失败时不再甩 `device socket io failed`，
