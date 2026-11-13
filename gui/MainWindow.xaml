@@ -406,6 +406,14 @@
                     <TextBox x:Name="TwoFaInput" Style="{StaticResource InputBox}" Margin="0,9,0,0"
                              Height="34" FontSize="15" MaxLength="24" Tag="6 位验证码"
                              KeyDown="TwoFaInput_KeyDown"/>
+
+                    <!-- 受信任号码：内容由代码按引擎输出填充，没有号码时整行隐藏 -->
+                    <StackPanel x:Name="NumberRow" Orientation="Horizontal" Margin="0,8,0,0"
+                                Visibility="Collapsed">
+                        <TextBlock Text="改发短信到：" FontSize="10.5" Foreground="#8C7A5C"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <StackPanel x:Name="NumberButtons" Orientation="Horizontal"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom"

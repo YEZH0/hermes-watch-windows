@@ -20,6 +20,7 @@ public partial class MainWindow : Window
     private StreamWriter? _stdin;
     private readonly StringBuilder _pending = new();
     private readonly StringBuilder _logAll = new();
+    private readonly StringBuilder _rawErr = new();   // 脱敏前的 stderr，只用来读号码列表
     private bool _running;
     private bool _userStopped;
     private int _activeStep;
@@ -308,6 +309,7 @@ public partial class MainWindow : Window
 
         PwdBox.Clear();
         _pending.Clear();
+        _rawErr.Clear();
 
         try
         {
@@ -342,6 +344,11 @@ public partial class MainWindow : Window
 
     private void OnChunk(string chunk, bool isStdout)
     {
+        // 引擎的 stdout 与 stderr 已经被 cmd 的 2>&1 并成一条流，
+        // 所以号码列表也是从这儿过的——不管 isStdout 是什么都要留底。
+        if (_rawErr.Length > 16384) _rawErr.Remove(0, _rawErr.Length - 8192);
+        _rawErr.Append(chunk);
+
         if (_diag != null)
         {
             var head = chunk.Length > 36 ? chunk[..36] : chunk;
@@ -485,6 +492,7 @@ public partial class MainWindow : Window
         _awaiting = kind;
         TwoFaBar.Visibility = Visibility.Visible;
         TwoFaInput.Clear();
+        NumberRow.Visibility = Visibility.Collapsed;   // 邮箱/密码提示时不该留着号码
 
         switch (kind)
         {
@@ -492,6 +500,7 @@ public partial class MainWindow : Window
                 TwoFaTitle.Text = "等两步验证码";
                 TwoFaHint.Text = "Apple 默认发「推送」到受信任设备，不一定是短信。也可以输入 sms 1 指定号码；输入 push 让 Apple 再推一次。";
                 TwoFaInput.Tag = "6 位验证码";
+                RenderNumbers();
                 break;
             case PromptKind.Email:
                 TwoFaTitle.Text = "需要 Apple ID 邮箱";
@@ -506,6 +515,49 @@ public partial class MainWindow : Window
         SetStatus("等待输入", "#F2731C");
         TwoFaInput.Focus();
         Keyboard.Focus(TwoFaInput);
+    }
+
+    /// <summary>
+    /// 把引擎报出来的受信任号码画成可点的胶囊。点一下就把短信发到那个号。
+    /// Apple 说不能发短信、或者根本没报号码时，整行隐藏而不是画一堆禁用按钮。
+    /// </summary>
+    private void RenderNumbers()
+    {
+        NumberButtons.Children.Clear();
+
+        var raw = _rawErr.ToString();
+        var numbers = TwoFactorPanel.Parse(raw);
+        if (numbers.Count == 0 || !TwoFactorPanel.SmsSupported(raw))
+        {
+            NumberRow.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        foreach (var n in numbers)
+        {
+            var btn = new Button
+            {
+                Content = n.Masked,
+                Style = (Style)FindResource("GhostButton"),
+                Height = 26,
+                Padding = new Thickness(10, 0, 10, 0),
+                FontSize = 11,
+                Margin = new Thickness(0, 0, 6, 0),
+                Cursor = Cursors.Hand,
+                ToolTip = n.CanPush ? "短信发到这个号码" : "短信发到这个号码（该号码不支持推送）",
+            };
+            btn.Click += (_, _) => SendSmsTo(n);
+            NumberButtons.Children.Add(btn);
+        }
+
+        NumberRow.Visibility = Visibility.Visible;
+    }
+
+    private void SendSmsTo(TwoFactorPanel.TrustedNumber n)
+    {
+        // 只回显掩码：完整号码是引擎打的，不该在界面上多留一份。
+        AppendLog($"» 请求短信到 {n.Masked}\r\n");
+        Send($"sms {n.Id}");
     }
 
     private void Send(string value)
