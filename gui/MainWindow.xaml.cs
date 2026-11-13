@@ -32,6 +32,8 @@ public partial class MainWindow : Window
     private bool _resumeAvailable;          // 签名产物已落盘，可以只重跑手表
     private bool _watchReady;               // 重新检查过、手表确实连上了
     private string _cacheId = "";
+    private DevModeResult? _devMode;        // 最近一次开发者模式结论；null 表示还没测
+    private bool _devModeBusy;              // 正在检测/唤醒，别让按钮重入
     private readonly StringBuilder? _diag =
         Environment.GetEnvironmentVariable("HF_DIAG") is null ? null : new StringBuilder();
 
@@ -86,6 +88,10 @@ public partial class MainWindow : Window
 
         HandleTestHooks();
         await RunSelfCheckAsync(auto: true);
+
+        // 开发者模式要连手表，比本地几项慢，放到最后单独跑：窗口先出来，
+        // 结论到了再更新卡片，别让启动被一段 30 秒的握手卡住。
+        _ = RefreshDevModeAsync(silent: true);
     }
 
     /// <summary>自检。auto=true 时只在"拦路"的问题上自动弹窗，避免每次启动都打扰。</summary>
@@ -307,11 +313,188 @@ public partial class MainWindow : Window
         _scanPos = 0;   // 清的是屏幕，不是进度：游标归零，后面的标记照常认
     }
 
+    // ---------------------------------------------------------------- 开发者模式
+
+    /// <summary>
+    /// 重新读一次手表的开发者模式状态。
+    /// <para>
+    /// <paramref name="silent"/> = true 时不弹窗（启动自检、点开始前的复核都走这条），
+    /// 只有用户主动点「重新检测」才弹结论，避免每次开机都糊一个对话框。
+    /// </para>
+    /// </summary>
+    private async Task RefreshDevModeAsync(bool silent)
+    {
+        if (_devModeBusy || _running) return;
+
+        _devModeBusy = true;
+        SetDevModeButtons(false);
+        PaintDevMode(null, "正在检测手表开发者模式…");
+
+        try
+        {
+            var result = await DevModeCheck.ProbeAsync(_engine);
+            _devMode = result;
+            PaintDevMode(result);
+            AppendLog($"[开发者模式] {result.Headline}" +
+                      (result.Reason.Length > 0 ? $" · {result.Reason}" : "") + "\r\n");
+
+            if (!silent)
+            {
+                MessageBox.Show(this, DevModeAdvice(result), "手表开发者模式",
+                    MessageBoxButton.OK,
+                    result.State == DevModeState.Enabled
+                        ? MessageBoxImage.Information
+                        : MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            _devMode = DevModeResult.Failed(ex.Message);
+            PaintDevMode(_devMode);
+            AppendLog($"[开发者模式] 检测出错：{ex.Message}\r\n");
+        }
+        finally
+        {
+            _devModeBusy = false;
+            SetDevModeButtons(true);
+        }
+    }
+
+    /// <summary>刷新左上角那块卡片。传 <paramref name="busy"/> 表示正在忙，先占位。</summary>
+    private void PaintDevMode(DevModeResult? result, string? busy = null)
+    {
+        if (busy is not null)
+        {
+            DevModeBadgeText.Text = "检测中";
+            DevModeBadgeText.Foreground = Hex("#8A94A6");
+            DevModeBadge.Background = Hex("#171B22");
+            DevModeBadge.BorderBrush = Hex("#39404C");
+            DevModeDetail.Text = busy;
+            return;
+        }
+
+        var state = result?.State ?? DevModeState.Unknown;
+        var (text, fg, bg, border) = state switch
+        {
+            DevModeState.Enabled => ("已开启", "#3FB950", "#131C16", "#1E3A25"),
+            DevModeState.Disabled => ("未开启", "#F85149", "#1F1414", "#5A2020"),
+            _ => ("无法确认", "#E3B341", "#241F10", "#4A3A16"),
+        };
+
+        DevModeBadgeText.Text = text;
+        DevModeBadgeText.Foreground = Hex(fg);
+        DevModeBadge.Background = Hex(bg);
+        DevModeBadge.BorderBrush = Hex(border);
+
+        DevModeDetail.Text = result is null
+            ? "先确认手表上「开发者模式」已开启并重启过，再开始签名安装。"
+            : DevModeExplain(result);
+    }
+
+    /// <summary>卡片上一行说明。要说清「为什么」，不能只写「未通过」。</summary>
+    private static string DevModeExplain(DevModeResult r) => r.State switch
+    {
+        DevModeState.Enabled => "手表已开启开发者模式，可以继续签名安装。",
+        DevModeState.Disabled =>
+            "手表回复 developer_mode = false。先在手表上打开：设置 → 隐私与安全性 → 开发者模式，" +
+            "打开后手表会重启，重启后再确认一次。列表里没有这一项时，点「显示开发者模式入口」。",
+        _ when r.WatchCode == "WATCH_LOCKED" =>
+            "手表锁着，读不到开关状态（这不等于没开）。先在手表上输入密码解锁，再点「重新检测」。",
+        _ when r.WatchCode is "WATCH_UNREACHABLE" or "WATCH_TIMEOUT" =>
+            $"连不上手表：{r.Reason}。确认手表戴在手上、和 iPhone 连着、放在充电器上，再重新检测。",
+        _ when r.WatchCode == "IPHONE_UNREACHABLE" =>
+            "没找到通过 USB 连接的 iPhone。插上数据线、解锁手机并点「信任」，再重新检测。",
+        _ => $"无法确认：{r.Reason}。可以点「重新检测」重试；反复问不出来就按第一阶段提示词把开发者模式打开，再回来签名。",
+    };
+
+    /// <summary>手动点「重新检测」后的弹窗文案。</summary>
+    private static string DevModeAdvice(DevModeResult r) => r.State switch
+    {
+        DevModeState.Enabled => "手表开发者模式已开启，可以开始签名安装。",
+        DevModeState.Disabled =>
+            "手表还没有开启开发者模式。\n\n" +
+            "1. 在手表上打开：设置 → 隐私与安全性 → 开发者模式\n" +
+            "2. 打开开关，输入手表密码\n" +
+            "3. 手表重启后，再回来看一次是否已经打开\n\n" +
+            "列表里找不到这一项时，先点「显示开发者模式入口」，再重新检测。",
+        _ => "无法确认手表的开发者模式状态。\n\n" +
+             "原因：" + r.Reason + "\n\n" +
+             "先把手表解锁、戴在手上、确认和 iPhone 连着，再点「重新检测」。\n" +
+             "如果一直问不出来，按第一阶段提示词在手表上打开开发者模式，之后回来重新签名。",
+    };
+
+    /// <summary>点「开始」但开发者模式没确认时的拦截提示。</summary>
+    private string DevModeBlockMessage() => _devMode?.State == DevModeState.Disabled
+        ? "手表还没有开启开发者模式，现在开始会白签一次。\n\n" +
+          "1. 在手表上打开：设置 → 隐私与安全性 → 开发者模式\n" +
+          "2. 打开开关、输入密码、等手表重启并确认\n" +
+          "3. 回来点「重新检测」，显示「已开启」后再开始\n\n" +
+          "找不到这一项时，先点「显示开发者模式入口」。"
+        : "无法确认手表开发者模式状态，先别开始签名。\n\n" +
+          "原因：" + (_devMode?.Reason ?? "还没有检测") + "\n\n" +
+          "解锁手表、确认和 iPhone 连着，点「重新检测」；" +
+          "一直问不出来就按第一阶段提示词打开开发者模式，再回来签名。";
+
+    private void SetDevModeButtons(bool enabled)
+    {
+        DevModeRecheckBtn.IsEnabled = enabled;
+        DevModeRevealBtn.IsEnabled = enabled;
+    }
+
+    private async void DevModeRecheck_Click(object sender, RoutedEventArgs e)
+        => await RefreshDevModeAsync(silent: false);
+
+    private async void DevModeReveal_Click(object sender, RoutedEventArgs e)
+    {
+        if (_devModeBusy || _running) return;
+
+        _devModeBusy = true;
+        SetDevModeButtons(false);
+        DevModeDetail.Text = "正在请手表把开发者模式入口显示出来…";
+
+        try
+        {
+            var outcome = await DevModeCheck.RevealAsync(_engine);
+            if (outcome.Ok)
+            {
+                AppendLog("[开发者模式] 已请求手表显示设置入口（这一步不等于已开启）。\r\n");
+                DevModeDetail.Text =
+                    "入口已显示。请在手表上手动打开开关、输入密码并重启，" +
+                    "完成后点「重新检测」——入口显示出来不代表已经开启。";
+
+                // 这句是给用户看的承诺，一个字都不能省：显示入口 ≠ 开启成功。
+                MessageBox.Show(this,
+                    "请在 Apple Watch 设置 → 隐私与安全性 → 开发者模式中手动开启，" +
+                    "完成重启和确认后返回软件。\n\n" +
+                    "注意：入口显示出来不等于开发者模式已经打开，开关要你自己拨；" +
+                    "重启确认后点「重新检测」，显示「已开启」再开始签名。",
+                    "开发者模式入口", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                AppendLog($"[开发者模式] 显示入口失败：{outcome.Reason}\r\n");
+                DevModeDetail.Text = "没能显示入口：" + outcome.Reason;
+                Warn("没能让手表显示开发者模式入口。\n\n原因：" + outcome.Reason +
+                     "\n\n先确认手表已解锁、和 iPhone 连着；一直不行就按第一阶段提示词手动打开。");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[开发者模式] 显示入口出错：{ex.Message}\r\n");
+            DevModeDetail.Text = "没能显示入口：" + ex.Message;
+        }
+        finally
+        {
+            _devModeBusy = false;
+            SetDevModeButtons(true);
+        }
+    }
+
     // ---------------------------------------------------------------- 运行
 
-    private void Start_Click(object sender, RoutedEventArgs e)
+    private async void Start_Click(object sender, RoutedEventArgs e)
     {
-        if (_running) return;
+        if (_running || _devModeBusy) return;
 
         var ipa = IpaBox.Text.Trim();
         var email = EmailBox.Text.Trim();
@@ -321,6 +504,18 @@ public partial class MainWindow : Window
         if (!File.Exists(_engine)) { Warn("没有找到 hermesfix.exe，请点右下角「更换」指定。"); return; }
         if (email.Length == 0) { Warn("请填写 Apple ID 邮箱。"); EmailBox.Focus(); return; }
         if (pwd.Length == 0) { Warn("请填写 Apple ID 密码。"); PwdBox.Focus(); return; }
+
+        // 手表开发者模式没确认之前不开始：签名那十几分钟会白跑，还白占一次
+        // 免费账号的证书额度。这里现场再测一次，别信几分钟前的缓存。
+        if (_devMode?.State != DevModeState.Enabled)
+        {
+            await RefreshDevModeAsync(silent: true);
+            if (_devMode?.State != DevModeState.Enabled)
+            {
+                Warn(DevModeBlockMessage());
+                return;
+            }
+        }
 
         SaveSettings();
 
@@ -991,6 +1186,9 @@ public partial class MainWindow : Window
         EmailBox.IsEnabled = enabled;
         PwdBox.IsEnabled = enabled;
         RememberEmail.IsEnabled = enabled;
+        // 安装期间不让检测：引擎只有一个，两个进程同时跟手表握手会互相踩。
+        DevModeRecheckBtn.IsEnabled = enabled && !_devModeBusy;
+        DevModeRevealBtn.IsEnabled = enabled && !_devModeBusy;
     }
 
     private void SetStatus(string text, string color)
@@ -1002,6 +1200,12 @@ public partial class MainWindow : Window
 
     private void Warn(string msg)
     {
+        // 提示一律进日志：无头自测时靠它判断「有没有被拦住」。
+        AppendLog("[提示] " + msg.Replace("\r", "").Replace("\n", " ") + "\r\n");
+
+        // HF_AUTOCONFIRM=1 时不弹窗，直接把提示留在日志里（自动测试用）。
+        if (Environment.GetEnvironmentVariable("HF_AUTOCONFIRM") == "1") return;
+
         MessageBox.Show(this, msg, "爱马仕表盘助手", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 

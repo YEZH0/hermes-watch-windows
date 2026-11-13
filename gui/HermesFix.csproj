@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>HermesFixGui</AssemblyName>
     <RootNamespace>HermesFix</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <Product>爱马仕表盘助手</Product>
     <AssemblyTitle>HermesEnabler 签名助手</AssemblyTitle>
     <Company>hermes-watch-windows</Company>

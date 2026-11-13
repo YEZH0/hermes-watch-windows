@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -40,6 +41,11 @@ public partial class MainWindow
 
     private async Task RunTestAsync(bool demo, string? shot)
     {
+        // 开发者模式那块卡片是异步填的。截图要拍「结论已到」的样子，
+        // 就得等它落定；不设这个变量时保持原来的 500ms，别把普通截图拖慢。
+        if (Environment.GetEnvironmentVariable("HF_WAIT_DEVMODE") == "1")
+            await WaitAsync(() => _devMode is not null && !_devModeBusy, 25000);
+
         await Task.Delay(500);
 
         if (!demo)
@@ -63,7 +69,11 @@ public partial class MainWindow
         if (!await WaitAsync(() => TwoFaBar.Visibility == Visibility.Visible, 20000))
         {
             AppendLog("\r\n» [自测] 没有等到 2FA 提示\r\n");
-            if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".fail.png");
+            if (!string.IsNullOrEmpty(shot))
+            {
+                SaveShot(shot + ".fail.png");
+                DumpLog(shot + ".fail.log.txt");
+            }
             Application.Current.Shutdown();
             return;
         }
@@ -84,7 +94,11 @@ public partial class MainWindow
         if (!await WaitAsync(() => !_running, 30000))
         {
             AppendLog("\r\n» [自测] 引擎没有按时结束\r\n");
-            if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".hang.png");
+            if (!string.IsNullOrEmpty(shot))
+            {
+                SaveShot(shot + ".hang.png");
+                DumpLog(shot + ".hang.log.txt");
+            }
             Application.Current.Shutdown();
             return;
         }
@@ -94,6 +108,7 @@ public partial class MainWindow
         {
             SaveShot(shot + ".done.png");
             DumpDiag(shot + ".diag.txt");
+            DumpLog(shot + ".log.txt");
         }
 
         // HF_DEMO_RETRY=1：手表阶段失败后，模拟「用户把手表解锁了」，
@@ -156,6 +171,12 @@ public partial class MainWindow
     {
         if (_diag == null) return;
         try { File.WriteAllText(path, _diag.ToString()); } catch { }
+    }
+
+    /// <summary>把界面日志原样落盘，供无头测试断言「该说的话有没有说」。</summary>
+    private void DumpLog(string path)
+    {
+        try { File.WriteAllText(path, _logAll.ToString(), new UTF8Encoding(true)); } catch { }
     }
 
     private static async Task<bool> WaitAsync(Func<bool> condition, int timeoutMs)

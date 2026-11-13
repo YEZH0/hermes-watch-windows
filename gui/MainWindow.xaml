@@ -289,6 +289,41 @@
                                 <TextBlock Text="全程别拔线" FontSize="11" Foreground="#5F6875"
                                            Margin="9,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
+
+                            <!-- 开发者模式：这一项没确认就开始，签名那十几分钟是白跑的 -->
+                            <Border Background="#12161C" BorderBrush="{StaticResource Line}"
+                                    BorderThickness="1" CornerRadius="9" Padding="12,10"
+                                    Margin="0,0,0,11">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="手表开发者模式" FontSize="12"
+                                                   FontWeight="SemiBold" Foreground="#E8ECF2"
+                                                   VerticalAlignment="Center"/>
+                                        <Border x:Name="DevModeBadge" HorizontalAlignment="Right"
+                                                CornerRadius="20" Background="#171B22"
+                                                BorderBrush="#39404C" BorderThickness="1"
+                                                Padding="8,2">
+                                            <TextBlock x:Name="DevModeBadgeText" Text="未检测"
+                                                       FontSize="10.5" Foreground="#8A94A6"/>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="DevModeDetail" FontSize="11"
+                                               Foreground="#8A94A6" TextWrapping="Wrap"
+                                               Margin="0,7,0,0" LineHeight="16"
+                                               Text="先确认手表上「开发者模式」已开启并重启过，再开始签名安装。"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                        <Button x:Name="DevModeRecheckBtn" Content="重新检测"
+                                                Style="{StaticResource GhostButton}" Height="28"
+                                                Padding="11,0" FontSize="11.5"
+                                                Click="DevModeRecheck_Click"/>
+                                        <Button x:Name="DevModeRevealBtn" Content="显示开发者模式入口"
+                                                Style="{StaticResource GhostButton}" Height="28"
+                                                Padding="11,0" FontSize="11.5" Margin="7,0,0,0"
+                                                Click="DevModeReveal_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
                             <Button x:Name="StartBtn" Content="开始签名并安装" Height="44"
                                     Style="{StaticResource PrimaryButton}" Click="Start_Click"/>
                             <Grid Margin="0,9,0,0">
