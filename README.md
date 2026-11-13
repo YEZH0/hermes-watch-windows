@@ -66,12 +66,19 @@ flowchart TD
 
 不确定就下第一个。自包含、免安装、不写注册表、不要管理员权限。
 
+当前版本 **v1.3.0**：
+
 ```
-SHA-256（standalone）: 9d8476916acb745057b7a9636693ea117bd77135b43724345984f9add0c5eb49
+SHA-256（standalone）: 408036f3baf601282ab3c742a8226a6f8c40571fb1960d7464906ddc05895258
+SHA-256（26 MB）    : 363a6d46c2b441beffa1c28bf848179565664061e5e8e5baa918489a239dda5d
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
-> 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。
+> 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。要出单文件包跑 `scripts\build-gui.cmd`。
+> 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 26 MB 的 1.3.0 包，SHA-256 与 Release 资产一致。
+
+> **1.3.0 没有用真实 Apple ID 重跑真机签名。** 引擎二进制与 1.2.0 逐字节相同（`700444d3`），
+> 登录、证书、App Groups、签名、安装这条链一行未改，改的全是界面与外设逻辑。要回退就下 v1.2.0。
 
 > **工具和 IPA 是两个东西。** exe 是签名工具，**不含**表盘；`HermesEnabler.ipa` 才是装到手表上的
 > 应用。两者版本号不需要对齐。本仓库实测通过的是 HermesEnabler **1.5.1**；上游的新版本通常也能签，
