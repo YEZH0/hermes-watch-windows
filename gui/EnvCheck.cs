@@ -26,9 +26,13 @@ internal sealed record CheckItem(string Name, CheckState State, string Detail, s
 /// </summary>
 internal static class EnvCheck
 {
-    /// <summary>上游 HermesEnabler 1.5.1 的 IPA 指纹，仅用于提示版本是否对得上。</summary>
-    private const string KnownIpaSha = "53a14e7e431f9c4e1b39aca76852f1a1207d551d489fc0d3a72791e0ad9b01bb";
-    private const long KnownIpaSize = 944867;
+    /// <summary>
+    /// 仓库里 <c>ipa/HermesEnabler.ipa</c> 那一份的指纹，用来判断"你选的是不是这一份"。
+    /// 升级 IPA 时这三行要一起改，否则自检会把仓库自带的文件报成"不一致"。
+    /// </summary>
+    private const string KnownIpaVersion = "1.5.4";
+    private const string KnownIpaSha = "b8cf1cfaa129a61411fc0b7780fe85d2b2f8dab070d01eb8596cf45d883a43f9";
+    private const long KnownIpaSize = 959386;
 
     public static async Task<List<CheckItem>> RunAllAsync(string ipaPath)
     {
@@ -81,18 +85,18 @@ internal static class EnvCheck
     {
         if (string.IsNullOrWhiteSpace(ipaPath) || !File.Exists(ipaPath))
             return new CheckItem("签名文件", CheckState.Fail, "还没有选择 .ipa",
-                "从 github.com/pookjw/HermesEnabler/releases 下 1.5.1，或把文件拖进窗口");
+                $"仓库 ipa/HermesEnabler.ipa 就是 {KnownIpaVersion}，直接选它；也可以把文件拖进窗口");
 
         try
         {
             var size = new FileInfo(ipaPath).Length;
             if (size == KnownIpaSize && Engine.HashFile(ipaPath) == KnownIpaSha)
                 return new CheckItem("签名文件", CheckState.Ok,
-                    $"HermesEnabler 1.5.1 · {size:N0} 字节 · 指纹匹配");
+                    $"HermesEnabler {KnownIpaVersion} · {size:N0} 字节 · 指纹匹配");
 
             return new CheckItem("签名文件", CheckState.Warn,
-                $"{Path.GetFileName(ipaPath)} · {size:N0} 字节 · 与已知 1.5.1 不一致",
-                "不是 1.5.1 也能签，但签名脚本里的 entitlements 是按 1.5.1 的结构验证过的");
+                $"{Path.GetFileName(ipaPath)} · {size:N0} 字节 · 与仓库里的 {KnownIpaVersion} 不一致",
+                $"不是 {KnownIpaVersion} 也能签，但签名脚本里的 entitlements 是按 {KnownIpaVersion} 的结构验证过的");
         }
         catch (Exception ex)
         {

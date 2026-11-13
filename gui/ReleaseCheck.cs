@@ -12,8 +12,12 @@ namespace HermesFix;
 /// </summary>
 internal static class ReleaseCheck
 {
-    /// <summary>本仓库真机实测通过的版本。上游更新了不代表这里验证过。</summary>
-    private const string VerifiedBaseline = "1.5.1";
+    /// <summary>
+    /// 仓库 <c>ipa/HermesEnabler.ipa</c> 里带的版本。这里只说"附带的"，
+    /// 不说"验证过的"——真机那次跑通的是 1.5.1，1.5.4 只做了结构比对
+    /// （bundle id、可执行名、fat 架构、entitlements 依赖的结构都没变）。
+    /// </summary>
+    private const string BundledBaseline = "1.5.4";
 
     private const string Api = "https://api.github.com/repos/pookjw/HermesEnabler/releases/latest";
 
@@ -53,12 +57,12 @@ internal static class ReleaseCheck
 
             if (tag.Length == 0) return Offline("上游返回里没有版本号");
 
-            return tag == VerifiedBaseline
+            return tag == BundledBaseline
                 ? new CheckItem("上游版本", CheckState.Ok,
-                    $"上游最新 {tag}，与本仓库实测基准一致")
+                    $"上游最新 {tag}，与仓库里附带的一致")
                 : new CheckItem("上游版本", CheckState.Warn,
-                    $"上游已发布 {tag}，本仓库实测的是 {VerifiedBaseline}",
-                    "新版本通常也能签，但没有经过本项目的真机验证。想稳妥就继续用 1.5.1");
+                    $"上游已发布 {tag}，仓库里附带的是 {BundledBaseline}",
+                    $"新版本通常也能签，但没经过本仓库验证。想稳妥就用 ipa/ 里那份 {BundledBaseline}");
         }
         catch (Exception ex)
         {

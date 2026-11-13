@@ -15,6 +15,9 @@ publish/
 
 # 二进制/敏感产物：绝不入库
 *.ipa
+# 例外：上游原版 IPA 不含任何个人信息（上游自己就公开发布），仓库直接带一份，
+# 免得别人去上游下到别的版本。签名后的 IPA 仍被上面的 *.ipa 挡住。
+!ipa/HermesEnabler.ipa
 *.app/
 *.mobileprovision
 signed*.ipa

@@ -69,26 +69,30 @@ flowchart TD
 当前版本 **v1.3.1**：
 
 ```
-SHA-256（standalone）: b4c5bae595313fc1f69a57ba31a101960af70df58873a11b73bef8b225517167
-SHA-256（26 MB）    : 5de418e7c70e3093b06f85dc8f8fb467e5576a1ba275fc5b521ab0244ad5a5e7
+SHA-256（standalone）: d68debb3adb914bdc5de951558de7f762a7f8a3e3fdfff03348ccf6863bfd227
+SHA-256（26 MB）    : e48b378b19c34e3c2f17ffc874669c7cbb57656c240fab0019206cdd9286a9e0
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
 > 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。要出单文件包跑 `scripts\build-gui.cmd`。
 > 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 26 MB 的 1.3.1 包，SHA-256 与 Release 资产一致。
 
-> **1.3.1 只修了两个界面缺陷，引擎与签名链路一行未动。**
+> **1.3.1 修了两个界面缺陷，并把仓库里的 IPA 换成上游最新的 1.5.4。引擎与签名链路一行未动。**
 > 一是两步验证码**输入框太矮**：`Height=34` 配上样式里上下各 8 的 `Padding`，内容区只剩 16 px，
 > 15 号字整行被裁掉，打进去的验证码一个字都看不见（功能其实一直是好的，回车能提交）。
 > 二是底栏版本号硬编码在 `v1.2`，现在从程序集读。
+> 三是 `ipa/HermesEnabler.ipa` 从 1.5.1 升到 **1.5.4**，自检的指纹与版本一并跟上——以前这份 IPA
+> 被 `.gitignore` 挡着没入库，别人只能自己去上游下，容易下错版本。
 > 引擎二进制与 1.2.0 / 1.3.0 逐字节相同（`700444d3`）。
 
 > **1.3.0 与 1.3.1 都没有用真实 Apple ID 重跑真机签名。** 引擎二进制与 1.2.0 逐字节相同（`700444d3`），
 > 登录、证书、App Groups、签名、安装这条链一行未改，改的全是界面与外设逻辑。要回退就下 v1.2.0。
 
 > **工具和 IPA 是两个东西。** exe 是签名工具，**不含**表盘；`HermesEnabler.ipa` 才是装到手表上的
-> 应用。两者版本号不需要对齐。本仓库实测通过的是 HermesEnabler **1.5.1**；上游的新版本通常也能签，
-> 但没有经过本项目的真机验证——自检里提示「与已知 1.5.1 不一致」是提醒，不是阻止。
+> 应用。两者版本号不需要对齐。仓库 `ipa/HermesEnabler.ipa` 带的是上游原版 **1.5.4**（未改一字节，
+> 自检认的就是它）；真机完整跑通过的是 **1.5.1**，1.5.4 与它只差内容更新——bundle id、可执行名、
+> fat 架构、Info.plist 结构全都没变，签名路径一致，但没重新做真机验证。上游再发新版，自检会提示
+> 「上游已发布 X，仓库里附带的是 1.5.4」，那是提醒，不是阻止。
 
 ---
 
@@ -214,7 +218,7 @@ python .\scripts\verify_appgroup.py <签名后的.ipa>
 | Windows x64 | 目前只有 GNU 工具链产物 |
 | iPhone + Watch 已配对 | 手表能进开发者模式是前提 |
 | 自己的免费 Apple ID | 各消耗自己的 3 张证书额度，互不影响 |
-| 自行下载 HermesEnabler.ipa | 本仓库不二次分发该 IPA |
+| 用仓库里的 HermesEnabler.ipa | 上游原版 1.5.4，一个字节没改；也可以自己去上游下 |
 | 人工完成 2FA | 6 位码只推送到受信任设备，无法无人值守 |
 | 人工开启手表开发者模式 | 在手表屏幕上点，软件无法代劳 |
 
@@ -295,7 +299,7 @@ python .\scripts\verify_appgroup.py .\HermesEnabler.ipa
   iPhone，也可能是另一台 iPhone、iPad 或 Mac。「再推送」「短信」只是向 Apple 发请求，
   **点了不等于一定送达**；账号被限流时越点越糟。详见 [docs/05-使用教程.md](docs/05-使用教程.md#7-开始然后等-6-位码)。
 - **anisette 走公共实例 `ani.jkcoxson.com`。** 该实例偶尔不稳定，失败重试即可。
-- 本仓库**不包含** HermesEnabler.ipa，请自行从上游 release 获取并核对哈希。也**不要**把签名后的 IPA 公开上传——里面的 provisioning profile 含你的 Team ID 与证书。
+- 仓库里的 `ipa/HermesEnabler.ipa` 是上游原版（1.5.4），哈希见 `ipa/SHA256.txt`。**但不要**把**签名后**的 IPA 公开上传——里面的 provisioning profile 含你的 Team ID 与证书。
 - **这是非官方工具。** 它不在 Apple 的授权范围内，走的是 Apple 公开接口的第三方实现。签名行为受开发者
   协议约束，修改系统表盘属于非官方用途。账号风险、设备风险、7 天过期，都得自己承担。别用它签你不拥有的
   Apple ID。
