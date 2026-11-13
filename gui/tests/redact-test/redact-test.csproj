@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>redact-test</AssemblyName>
+    <RootNamespace>HermesFix</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- 直接编译生产代码本身，不复制一份，杜绝测试与实现走偏 -->
+  <ItemGroup>
+    <Compile Include="..\..\LogRedactor.cs" Link="LogRedactor.cs" />
+    <Compile Include="..\..\TwoFactorPanel.cs" Link="TwoFactorPanel.cs" />
+  </ItemGroup>
+</Project>
