@@ -21,19 +21,44 @@ public partial class CheckWindow : Window
     {
         RerunBtn.IsEnabled = false;
         Subtitle.Text = "正在检测…";
-        Rows.Children.Clear();
 
-        _items = await EnvCheck.RunAllAsync(_ipa);
-        Render(_items);
+        try
+        {
+            Rows.Children.Clear();
 
-        var fail = _items.Count(i => i.State == CheckState.Fail);
-        var warn = _items.Count(i => i.State == CheckState.Warn);
-        Subtitle.Text = fail > 0
-            ? $"有 {fail} 项未通过，按提示补上再开始签名。"
-            : warn > 0
-                ? $"全部必需项通过，另有 {warn} 项提醒。"
-                : "全部通过，可以开始签名。";
-        RerunBtn.IsEnabled = true;
+            _items = await EnvCheck.RunAllAsync(_ipa);
+
+            // 上游版本是锦上添花的一行：它出任何问题都不能影响本地这几项的结论，
+            // 更不能让整个窗口停在半截。所以这里再兜一层。
+            try
+            {
+                _items.Add(await ReleaseCheck.QueryAsync());
+            }
+            catch (Exception ex)
+            {
+                _items.Add(new CheckItem("上游版本", CheckState.Warn,
+                    "检查出错：" + ex.GetType().Name, "不影响签名，跳过即可"));
+            }
+
+            Render(_items);
+
+            var fail = _items.Count(i => i.State == CheckState.Fail);
+            var warn = _items.Count(i => i.State == CheckState.Warn);
+            Subtitle.Text = fail > 0
+                ? $"有 {fail} 项未通过，按提示补上再开始签名。"
+                : warn > 0
+                    ? $"全部必需项通过，另有 {warn} 项提醒。"
+                    : "全部通过，可以开始签名。";
+        }
+        catch (Exception ex)
+        {
+            // 自检窗口本身不能静默失败——停在半截比报错更难查。
+            Subtitle.Text = $"检测中断：{ex.GetType().Name} · {ex.Message}";
+        }
+        finally
+        {
+            RerunBtn.IsEnabled = true;
+        }
     }
 
     private void Render(List<CheckItem> items)
