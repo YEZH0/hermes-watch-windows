@@ -27,6 +27,12 @@
     <EmbeddedResource Include="..\bin\hermesfix.exe" LogicalName="hermesfix.exe" />
   </ItemGroup>
 
+  <!-- 同一份思路用在 ipa 上：不到 1 MB，塞进 exe 后用户双击就能签，
+       不用先自己去找 ipa 放哪了。构建机上没有就跳过，退回"在程序旁边找"。 -->
+  <ItemGroup Condition="Exists('..\ipa\HermesEnabler.ipa')">
+    <EmbeddedResource Include="..\ipa\HermesEnabler.ipa" LogicalName="HermesEnabler.ipa" />
+  </ItemGroup>
+
   <!-- tests/ 下有独立的测试工程，不能被主工程顺手编译进来 -->
   <ItemGroup>
     <Compile Remove="tests/**" />

@@ -243,7 +243,7 @@
                         <StackPanel>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                 <TextBlock Style="{StaticResource CardTitle}" Text="1 · 签名文件" Margin="0"/>
-                                <TextBlock Text="选 HermesEnabler.ipa" FontSize="11" Foreground="#5F6875"
+                                <TextBlock Text="程序自带，一般不用改" FontSize="11" Foreground="#5F6875"
                                            Margin="9,0,0,0" VerticalAlignment="Center"/>
                             </StackPanel>
                             <Grid>

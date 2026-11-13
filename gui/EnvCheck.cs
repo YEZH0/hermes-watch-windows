@@ -112,18 +112,19 @@ internal static class EnvCheck
     private static CheckItem CheckIpa(string ipaPath)
     {
         if (string.IsNullOrWhiteSpace(ipaPath) || !File.Exists(ipaPath))
-            return new CheckItem("签名文件", CheckState.Fail, "还没有选择 .ipa",
-                $"仓库 ipa/HermesEnabler.ipa 就是 {KnownIpaVersion}，直接选它；也可以把文件拖进窗口");
+            return new CheckItem("签名文件", CheckState.Fail, "没找到能签的 .ipa",
+                "正常情况程序自带一份，用不着你去找；真没有就点「选择」指定，或把 .ipa 拖进窗口");
 
         try
         {
             var size = new FileInfo(ipaPath).Length;
+            var source = IpaBundle.IsEmbeddedCopy(ipaPath) ? "程序自带" : Path.GetFileName(ipaPath);
             if (size == KnownIpaSize && Engine.HashFile(ipaPath) == KnownIpaSha)
                 return new CheckItem("签名文件", CheckState.Ok,
-                    $"HermesEnabler {KnownIpaVersion} · {size:N0} 字节 · 指纹匹配");
+                    $"{source} · HermesEnabler {KnownIpaVersion} · 指纹匹配");
 
             return new CheckItem("签名文件", CheckState.Warn,
-                $"{Path.GetFileName(ipaPath)} · {size:N0} 字节 · 与仓库里的 {KnownIpaVersion} 不一致",
+                $"{source} · {size:N0} 字节 · 与仓库里的 {KnownIpaVersion} 不一致",
                 $"不是 {KnownIpaVersion} 也能签，但签名脚本里的 entitlements 是按 {KnownIpaVersion} 的结构验证过的");
         }
         catch (Exception ex)

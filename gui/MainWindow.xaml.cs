@@ -78,10 +78,14 @@ public partial class MainWindow : Window
         var ver = typeof(MainWindow).Assembly.GetName().Version;
         FooterVersion.Text = $"v{(ver == null ? "?" : ver.ToString(3))} · 免费 Apple ID 自签，7 天需重签一次";
 
-        IpaBox.Text = ResolveIpa(st.LastIpa);
+        IpaBox.Text = IpaBundle.Resolve(st.LastIpa);
         UpdateIpaHint();
 
         AppendLog("就绪。\r\n");
+        if (IpaBundle.IsEmbeddedCopy(IpaBox.Text.Trim()))
+            AppendLog("签名文件已自动备好：程序自带 HermesEnabler，不用你去翻目录。\r\n");
+        else if (string.IsNullOrEmpty(IpaBox.Text.Trim()))
+            AppendLog("警告：没找到签名文件，点「选择」手动指定一个 .ipa。\r\n");
         AppendLog("引擎优先复用 iLoader 留在凭据管理器里的证书；找不到也会自己申请一张（免费账号共 3 张额度）。\r\n");
         if (!File.Exists(_engine))
             AppendLog("警告：没有找到签名引擎，点底部「环境自检」看原因。\r\n");
@@ -196,25 +200,7 @@ public partial class MainWindow : Window
         return Path.Combine(AppContext.BaseDirectory, "hermesfix.exe");
     }
 
-    private static string ResolveIpa(string? remembered)
-    {
-        if (!string.IsNullOrWhiteSpace(remembered) && File.Exists(remembered))
-            return remembered;
-
-        var dir = AppContext.BaseDirectory;
-        var probe = new List<string> { Path.Combine(dir, "HermesEnabler.ipa") };
-        for (int up = 1; up <= 6; up++)
-        {
-            var root = dir;
-            for (int i = 0; i < up; i++) root = Path.GetFullPath(Path.Combine(root, ".."));
-            probe.Add(Path.Combine(root, "HermesEnabler.ipa"));
-            probe.Add(Path.Combine(root, "ipa", "HermesEnabler.ipa"));
-        }
-        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
-        probe.Add(Path.Combine(downloads, "HermesEnabler.ipa"));
-
-        return probe.FirstOrDefault(File.Exists) ?? "";
-    }
+    private static string ResolveIpa(string? remembered) => IpaBundle.Resolve(remembered);
 
     private void UpdateEngineText()
     {
@@ -247,6 +233,9 @@ public partial class MainWindow : Window
     private void UpdateIpaHint()
     {
         var path = IpaBox.Text.Trim();
+        // 输入框宽度有限，完整路径挂到悬停提示上，省得用户去猜后半截是什么。
+        IpaBox.ToolTip = path.Length > 0 ? path : null;
+
         if (string.IsNullOrEmpty(path))
         {
             IpaHint.Text = "可以直接把 .ipa 拖进这个窗口";
@@ -259,9 +248,12 @@ public partial class MainWindow : Window
             IpaHint.Foreground = Hex("#F85149");
             return;
         }
-        var mb = new FileInfo(path).Length / 1024.0 / 1024.0;
-        IpaHint.Text = $"{Path.GetFileName(path)} · {mb:F1} MB";
-        IpaHint.Foreground = Hex("#8A94A6");
+        var kb = new FileInfo(path).Length / 1024.0;
+        // 自带的那份要说清楚是哪来的，否则用户会以为程序偷偷选了别的文件。
+        IpaHint.Text = IpaBundle.IsEmbeddedCopy(path)
+            ? $"程序自带 · {kb:N0} KB · 已就绪"
+            : $"{Path.GetFileName(path)} · {kb / 1024.0:F1} MB";
+        IpaHint.Foreground = Hex("#3FB950");
     }
 
     private void RememberEmail_Changed(object sender, RoutedEventArgs e)
