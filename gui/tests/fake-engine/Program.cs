@@ -27,8 +27,12 @@ Out("Anisette: https://ani.jkcoxson.com");
 Out("");
 
 Out("[1/4] Signing in to Apple ID ...");
-Err("    sms supported : True");
-Err("    trusted number: id=1 +86 138****8888 (***88) push=True");
+// 与真实引擎逐字对齐：Rust 的 bool 是小写 true/false，号码是完整号码
+// （main.rs:162 打的是 number_with_dial_code）。早先这里写成了已掩码的假号码，
+// 比真实情况更"干净"，脱敏逻辑在测试里就看不出问题。
+Err("    sms supported : true");
+Err("    trusted number: id=1 +86 13812345678 (***78) push=true");
+Err("    trusted number: id=2 +86 13900001111 (***11) push=false");
 Err("    preselected   : id=1");
 Err("    input: 6-digit code | push | resend | sms [id] | abort");
 Console.Out.Write("Two-factor code: ");

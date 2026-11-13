@@ -383,6 +383,7 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(text)) return;
         text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+        text = LogRedactor.Redact(text);   // 屏幕、_logAll、以后的导出，都是同一份
         _logAll.Append(text);
         LogBox.AppendText(text);
         LogBox.ScrollToEnd();
