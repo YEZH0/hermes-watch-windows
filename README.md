@@ -69,8 +69,8 @@ flowchart TD
 当前版本 **v1.5.1**：
 
 ```
-SHA-256（standalone）: b017e0fbb75391fe9fea04fbd0529660efe15af45d929cefd4d2c6ace2d33ba8
-SHA-256（28 MB）    : 24f65d61cf9610a0b80144976c4a5dfa0a474cce6d7a3db7db674f58f2f2837e
+SHA-256（standalone）: 2ed5be93137c58ae09cba8288149f2720d46fae189aca36b555b12f54361ee54
+SHA-256（28 MB）    : 3e308486a56f2c5c482ffe7db85c775416140adcf678717415357197736a224c
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
