@@ -12,6 +12,8 @@
 //   devmode-unknown   读不到开发者模式状态（退出 5）
 //   devmode-locked    手表锁着，读不到状态（退出 5，watch=WATCH_LOCKED）
 //   devmode-reveal-fail 显示开发者模式入口失败（--reveal-dev-mode 退出 5）
+//   devmode-pair-phone   iPhone 还没信任这台电脑，等用户点「信任」等到超时
+//   devmode-pair-watch   手表还没信任这台电脑，等用户在手表上点「信任」
 
 using System.Text;
 
@@ -99,15 +101,54 @@ void WatchFailure()
 
 // ---------------------------------------------------------------- 开发者模式
 
+void PairEvent(string scope, string state, string code, string detail) =>
+    Event("{\"v\":1,\"event\":\"pair\"," +
+          $"\"scope\":\"{scope}\",\"state\":\"{state}\"," +
+          $"\"code\":\"{code}\",\"detail\":\"{detail}\"}}");
+
 void DevModeEvent(string state, string reason, string watch, string detail) =>
     Event("{\"v\":1,\"event\":\"dev_mode\"," +
           $"\"state\":\"{state}\",\"reason\":\"{reason}\"," +
           $"\"watch\":\"{watch}\",\"watch_detail\":\"{detail}\"}}");
 
+if (argsList.Contains("--pair-phone"))
+{
+    if (raw == "devmode-pair-phone")
+    {
+        PairEvent("phone", "waiting", "",
+            "已请求 iPhone 信任这台电脑：解锁 iPhone，在「要信任此电脑吗」弹窗里点「信任」");
+        PairEvent("phone", "failed", "PHONE_TRUST_TIMEOUT",
+            "已经请求 iPhone 信任这台电脑，等了 60 秒没等到「信任」");
+        Out("iPhone 配对失败（PHONE_TRUST_TIMEOUT）");
+        return 2;
+    }
+    PairEvent("phone", "ok", "", "iPhone 已信任这台电脑");
+    Out("iPhone 已信任这台电脑，配对记录已保存。");
+    return 0;
+}
+
 if (argsList.Contains("--probe-dev-mode"))
 {
     switch (raw)
     {
+        case "devmode-pair-phone":
+            PairEvent("phone", "waiting", "",
+                "已请求 iPhone 信任这台电脑：解锁 iPhone，在「要信任这台电脑吗」弹窗里点「信任」");
+            PairEvent("phone", "failed", "PHONE_TRUST_TIMEOUT",
+                "已经请求 iPhone 信任这台电脑，等了 60 秒没等到「信任」");
+            DevModeEvent("unknown", "iPhone 还没信任这台电脑（PHONE_TRUST_TIMEOUT）",
+                "WATCH_UNREACHABLE", "");
+            Out("developer mode: unknown — iPhone 还没信任这台电脑");
+            return 5;
+        case "devmode-pair-watch":
+            PairEvent("watch", "waiting", "",
+                "解锁 Apple Watch，屏幕上会弹出「信任这台电脑」，点「信任」");
+            PairEvent("watch", "failed", "WATCH_TRUST_TIMEOUT",
+                "等了 60 秒没等到手表确认「信任」");
+            DevModeEvent("unknown", "手表没有确认信任（WATCH_TRUST_TIMEOUT）",
+                "WATCH_UNREACHABLE", "");
+            Out("developer mode: unknown — 手表没有确认信任");
+            return 5;
         case "devmode-off":
             DevModeEvent("disabled", "手表明确回复 developer_mode = false", "READY", "watchOS 11.2");
             Out("developer mode: disabled — 手表明确回复 developer_mode = false");

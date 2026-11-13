@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use idevice::{
     IdeviceService,
+    pairing_file::PairingFile,
     provider::IdeviceProvider,
     services::{
         amfi::AmfiClient, companion_proxy::CompanionProxy, lockdown::LockdownClient,
@@ -20,11 +21,8 @@ use tracing::info;
 
 use crate::probe::{self, WatchState};
 
-const WATCH_LOCKDOWN_PORT: u16 = 62078;
-const WATCH_LOCKDOWN_SERVICE: &str = "com.apple.mobile.lockdownd";
 /// 手表上的 AMFI 服务：`action 0` 显示开发者模式入口，`action 3` 读开关状态。
 const AMFI_SERVICE: &str = "com.apple.amfi.lockdown";
-const PAIR_TIMEOUT: Duration = Duration::from_secs(30);
 const AMFI_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// 开发者模式的三态。`Unknown` 一定要带原因——界面要能说清「为什么不知道」。
@@ -85,7 +83,27 @@ impl Report {
 /// 检测（`reveal = false`）或显示设置入口（`reveal = true`）。
 ///
 /// `reveal` 模式下如果发现已经开启，就不再打扰手表，直接返回已开启。
-pub async fn inspect<P: IdeviceProvider>(provider: &P, host_name: &str, reveal: bool) -> Report {
+pub async fn inspect<P: IdeviceProvider>(
+    provider: &P,
+    udid: &str,
+    host_name: &str,
+    reveal: bool,
+) -> Report {
+    // 第一道门：iPhone 得先信任这台电脑。没有记录就现在问，而不是原地报错。
+    let phone = match crate::pairing::phone_pairing(provider, udid, host_name).await {
+        Ok(file) => file,
+        Err(fail) => {
+            let state = match fail {
+                crate::pairing::PairFail::PhoneLocked => WatchState::Locked,
+                _ => WatchState::Unreachable(fail.detail()),
+            };
+            return Report::skip(
+                state,
+                format!("iPhone 还没信任这台电脑（{}）", fail.code()),
+            );
+        }
+    };
+
     let mut companion = match CompanionProxy::connect(provider).await {
         Ok(service) => service,
         Err(e) => {
@@ -97,7 +115,7 @@ pub async fn inspect<P: IdeviceProvider>(provider: &P, host_name: &str, reveal: 
     };
 
     let mut ports: Vec<u16> = Vec::new();
-    let report = run(provider, host_name, reveal, &mut companion, &mut ports).await;
+    let report = run(provider, &phone, host_name, reveal, &mut companion, &mut ports).await;
 
     // 转发出来的端口要收回去，别让 iPhone 一直挂着手表的连接。
     for port in ports.iter().rev() {
@@ -111,93 +129,27 @@ pub async fn inspect<P: IdeviceProvider>(provider: &P, host_name: &str, reveal: 
 
 async fn run<P: IdeviceProvider>(
     provider: &P,
+    phone: &PairingFile,
     host_name: &str,
     reveal: bool,
     companion: &mut CompanionProxy,
     ports: &mut Vec<u16>,
 ) -> Report {
-    let pairing = match provider.get_pairing_file().await {
-        Ok(file) => file,
-        Err(e) => {
-            return Report::skip(
-                WatchState::Unreachable(format!("拿不到 iPhone 的配对记录：{e}")),
-                "本机没有 iPhone 的配对记录",
-            );
-        }
-    };
-
-    let port = match companion
-        .start_forwarding_service_port(WATCH_LOCKDOWN_PORT, Some(WATCH_LOCKDOWN_SERVICE), None)
-        .await
-    {
-        Ok(port) => port,
-        Err(e) => {
-            return Report::skip(
-                WatchState::Unreachable(format!("手表 lockdown 端口没有转发起来：{e}")),
-                "手表 lockdown 端口没有转发起来",
-            );
-        }
-    };
-    ports.push(WATCH_LOCKDOWN_PORT);
-
-    let connection = match probe::connect_port(provider, port).await {
-        Ok(connection) => connection,
-        Err(e) => {
-            return Report::skip(
-                WatchState::Unreachable(e.clone()),
-                "手表 lockdown 端口连不上（多半是手表没戴在手上/没连上 iPhone）",
-            );
-        }
-    };
-
-    let mut lockdown = LockdownClient::new(connection);
-
-    // 和安装完全一样：先 pair，再起 session。锁屏会在这里立刻返回 PasswordProtected。
-    let pairing = match tokio::time::timeout(
-        PAIR_TIMEOUT,
-        lockdown.pair(pairing.host_id.clone(), pairing.system_buid.clone(), Some(host_name)),
-    )
-    .await
-    {
-        Err(_) => {
-            return Report::skip(
-                WatchState::Unreachable(format!(
-                    "等了 {} 秒没有得到手表的回应（手表可能锁着或睡着了）",
-                    PAIR_TIMEOUT.as_secs()
-                )),
-                "手表没有回应",
-            );
-        }
-        Ok(Ok(pairing)) => pairing,
-        Ok(Err(e)) => {
-            let state = probe::classify_idevice_error(&e);
-            let why = match state {
-                WatchState::Locked => "手表处于锁屏状态，先解锁再检测",
-                WatchState::PairingPending => "手表上还有没点的「信任」弹窗",
-                WatchState::Denied => "手表拒绝了这次配对",
-                _ => "手表配对失败",
+    // 第二道门：手表也要信任这台电脑。缓存命中时手表毫无感知；没有缓存才弹「信任」。
+    let mut lockdown = match probe::open_session(provider, companion, phone, host_name, ports).await {
+        Ok(lockdown) => lockdown,
+        Err(state) => {
+            let why = match &state {
+                WatchState::Locked => "手表处于锁屏状态，先解锁再检测".to_string(),
+                WatchState::PairingPending => "手表上还有没点的「信任」弹窗".to_string(),
+                WatchState::Denied => "手表拒绝了这次配对".to_string(),
+                // 其余情况把引擎那边的原话带上——「手表没有回应」这种笼统说法
+                // 帮不上忙，用户需要知道到底是转发没起来，还是设备没连上。
+                other => other.detail(),
             };
             return Report::skip(state, why);
         }
     };
-
-    match tokio::time::timeout(PAIR_TIMEOUT, lockdown.start_session(&pairing)).await {
-        Err(_) => {
-            return Report::skip(
-                WatchState::Unreachable("手表接受了配对，但建立 session 超时".into()),
-                "和手表建立 session 超时",
-            );
-        }
-        Ok(Err(e)) => {
-            let state = probe::classify_idevice_error(&e);
-            let why = match state {
-                WatchState::Locked => "手表处于锁屏状态，先解锁再检测",
-                _ => "手表拒绝了 session",
-            };
-            return Report::skip(state, why);
-        }
-        Ok(Ok(_)) => {}
-    }
 
     let watch = WatchState::Ready {
         version: lockdown

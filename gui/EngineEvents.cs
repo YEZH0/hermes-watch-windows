@@ -26,6 +26,9 @@ internal sealed class EngineEvent
     public string Watch { get; init; } = "";
     public string WatchDetail { get; init; } = "";
     public bool Ok { get; init; }
+
+    /// <summary>pair 事件里是 phone 或 watch，说明现在轮到谁点「信任」。</summary>
+    public string Scope { get; init; } = "";
 }
 
 internal static class EngineEvents
@@ -75,6 +78,7 @@ internal static class EngineEvents
                 Watch = Str("watch"),
                 WatchDetail = Str("watch_detail"),
                 Ok = Bool("ok"),
+                Scope = Str("scope"),
             };
         }
         catch (JsonException)

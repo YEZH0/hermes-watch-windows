@@ -1,6 +1,6 @@
 [package]
 name = "hermesfix"
-version = "1.5.0"
+version = "1.5.1"
 # 与 isideload 一致：源码里用到了 let chain（if let Some(x) = .. && cond），
 # 这在 2021 edition 下不合法。
 edition = "2024"

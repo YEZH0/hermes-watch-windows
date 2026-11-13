@@ -314,6 +314,16 @@ public partial class MainWindow : Window
     /// 只有用户主动点「重新检测」才弹结论，避免每次开机都糊一个对话框。
     /// </para>
     /// </summary>
+    /// <summary>
+    /// 引擎正在等用户在手机或手表上点「信任」时，把这句话立刻显示出来。
+    /// 这类等待有二十秒以上的静默，不写出来的话界面看起来就是卡死了。
+    /// </summary>
+    private void ReportPairing(string note)
+    {
+        PaintDevMode(null, note);
+        AppendLog($"[配对] {note}\r\n");
+    }
+
     private async Task RefreshDevModeAsync(bool silent)
     {
         if (_devModeBusy || _running) return;
@@ -324,7 +334,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await DevModeCheck.ProbeAsync(_engine);
+            var result = await DevModeCheck.ProbeAsync(_engine, ReportPairing);
             _devMode = result;
             PaintDevMode(result);
             AppendLog($"[开发者模式] {result.Headline}" +
@@ -393,7 +403,7 @@ public partial class MainWindow : Window
         _ when r.WatchCode == "WATCH_LOCKED" =>
             "手表锁着，读不到开关状态（这不等于没开）。先在手表上输入密码解锁，再点「重新检测」。",
         _ when r.WatchCode is "WATCH_UNREACHABLE" or "WATCH_TIMEOUT" =>
-            $"连不上手表：{r.Reason}。确认手表戴在手上、和 iPhone 连着、放在充电器上，再重新检测。",
+            $"还没连上：{r.Reason}。让 iPhone 和 Apple Watch 都保持解锁状态（手表戴在手上、贴近 iPhone），再重新检测。",
         _ when r.WatchCode == "IPHONE_UNREACHABLE" =>
             "没找到通过 USB 连接的 iPhone。插上数据线、解锁手机并点「信任」，再重新检测。",
         _ => $"无法确认：{r.Reason}。可以点「重新检测」重试；反复问不出来就按第一阶段提示词把开发者模式打开，再回来签名。",
@@ -411,7 +421,7 @@ public partial class MainWindow : Window
             "列表里找不到这一项时，先点「显示开发者模式入口」，再重新检测。",
         _ => "无法确认手表的开发者模式状态。\n\n" +
              "原因：" + r.Reason + "\n\n" +
-             "先把手表解锁、戴在手上、确认和 iPhone 连着，再点「重新检测」。\n" +
+             "让 iPhone 和 Apple Watch 都保持解锁状态（手表戴在手上、贴近 iPhone），再点「重新检测」。\n" +
              "如果一直问不出来，按第一阶段提示词在手表上打开开发者模式，之后回来重新签名。",
     };
 
@@ -446,7 +456,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var outcome = await DevModeCheck.RevealAsync(_engine);
+            var outcome = await DevModeCheck.RevealAsync(_engine, ReportPairing);
             if (outcome.Ok)
             {
                 AppendLog("[开发者模式] 已请求手表显示设置入口（这一步不等于已开启）。\r\n");
@@ -861,7 +871,7 @@ public partial class MainWindow : Window
         FailureTitle.Text = "手表还没准备好";
         FailureAction.Text = code == 2
             ? "先确认 iPhone 用数据线连着、已解锁并点了「信任」，再检查一次。"
-            : "把手表解锁、戴在手上、贴近 iPhone 后再检查一次。";
+            : "让 iPhone 和 Apple Watch 都保持解锁状态（手表戴在手上、贴近 iPhone）后再检查一次。";
         RecheckBtn.IsEnabled = true;
         SetStatus("手表还没就绪", "#F85149");
     }

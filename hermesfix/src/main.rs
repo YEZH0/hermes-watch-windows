@@ -50,6 +50,7 @@ mod devmode;
 mod diag;
 mod events;
 mod inspect;
+mod pairing;
 mod preflight;
 mod probe;
 
@@ -149,6 +150,7 @@ async fn main() {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_IPA)),
         ),
+        Some("--pair-phone") => pair_phone_cmd().await,
         Some("--probe-watch") => probe_cmd().await,
         Some("--probe-dev-mode") => dev_mode_cmd(false).await,
         Some("--reveal-dev-mode") => dev_mode_cmd(true).await,
@@ -169,11 +171,13 @@ fn print_help() {
     println!("  hermesfix [ipa]            完整流程：登录 → 签名 → iPhone → 手表");
     println!("  hermesfix --resume-watch [缓存id]");
     println!("                             只重跑手表阶段，复用已签名的产物");
+    println!("  hermesfix --pair-phone     让 iPhone 现在就弹出「信任此电脑」并记住这台电脑");
     println!("  hermesfix --probe-watch    只检查手表连通/解锁状态，不装东西");
     println!("  hermesfix --probe-dev-mode 只读检测手表开发者模式，不装东西");
     println!("  hermesfix --reveal-dev-mode 请求手表显示「开发者模式」设置入口（不开启）");
     println!("  hermesfix --inspect [ipa]  只读解析 IPA，不登录不联网");
     println!("  hermesfix --purge-cache    删掉本地签名缓存");
+    println!("\n配对记录缓存在 %LOCALAPPDATA%\\HermesWatch\\pairing，删掉它等于「忘记这台电脑」");
     println!("\n退出码：0 成功 / 2 失败 / 3 手表阶段失败（可只重试手表）");
     println!("        --probe-dev-mode 另有：4 未开启 / 5 无法确认");
 }
@@ -381,7 +385,7 @@ async fn full_cmd(ipa: Option<PathBuf>) -> i32 {
     events::stage(Stage::Iphone, "done");
 
     // ---- 4/5 + 5/5 手表
-    install_watch_phase(&provider, &bundle, false).await
+    install_watch_phase(&provider, &provider.udid, &bundle, false).await
 }
 
 /// 手表两段：先确认连得上（并且没有锁屏），再真正安装。
@@ -389,11 +393,16 @@ async fn full_cmd(ipa: Option<PathBuf>) -> i32 {
 /// 之所以先探测：`install_watch_apps` 内部把「连」和「装」揉在一起，
 /// 手表锁着时用户要等它自己超时才看到一句含糊的失败。探测走的是同一条
 /// lockdown 链路，锁屏会立刻返回 `PasswordProtected`，两秒内就能给出结论。
-async fn install_watch_phase(provider: &impl IdeviceProvider, bundle: &Bundle, resumed: bool) -> i32 {
+async fn install_watch_phase(
+    provider: &impl IdeviceProvider,
+    udid: &str,
+    bundle: &Bundle,
+    resumed: bool,
+) -> i32 {
     events::stage(Stage::WatchConnect, "start");
     println!("[4/5] Connecting to the Apple Watch ...");
 
-    if let Err(failure) = ensure_watch_ready(provider).await {
+    if let Err(failure) = ensure_watch_ready(provider, udid).await {
         return report_failure(failure);
     }
     println!("      watch reachable and unlocked");
@@ -437,10 +446,10 @@ async fn install_watch_phase(provider: &impl IdeviceProvider, bundle: &Bundle, r
 }
 
 /// 探测 + 对临时性故障做一次自动重试。锁屏/弹窗这类要用户动手的不重试。
-async fn ensure_watch_ready(provider: &impl IdeviceProvider) -> Result<(), Failure> {
+async fn ensure_watch_ready(provider: &impl IdeviceProvider, udid: &str) -> Result<(), Failure> {
     let mut last = None;
     for attempt in 0..=TRANSIENT_RETRIES {
-        let state = probe::probe(provider, MACHINE).await;
+        let state = probe::probe(provider, udid, MACHINE).await;
         events::watch_state(
             state.kind().map(Kind::code).unwrap_or("READY"),
             &state.detail(),
@@ -537,10 +546,32 @@ async fn resume_cmd(id: Option<String>) -> i32 {
     }
 
     events::resume_used(&saved.id, cache::now() - saved.manifest.created_at);
-    install_watch_phase(&provider, &bundle, true).await
+    install_watch_phase(&provider, &provider.udid, &bundle, true).await
 }
 
 // ---------------------------------------------------------------- 探测 / 清理
+
+/// 让 iPhone 现在就信任这台电脑。
+///
+/// iPhone 从没跟这台机器配过对时，后面全是空谈：拿不到配对记录就连 session 都开不了，
+/// 更够不到手表。所以给它一个能单独跑的入口，界面在检测失败时也能直接调。
+async fn pair_phone_cmd() -> i32 {
+    let provider = match phone_provider().await {
+        Ok(p) => p,
+        Err(e) => return fail(Stage::Iphone, &e),
+    };
+
+    match pairing::phone_pairing(&provider, &provider.udid, MACHINE).await {
+        Ok(_) => {
+            println!("iPhone 已信任这台电脑，配对记录已保存。");
+            0
+        }
+        Err(fail) => {
+            println!("iPhone 配对失败（{}）：{}", fail.code(), fail.detail());
+            2
+        }
+    }
+}
 
 async fn probe_cmd() -> i32 {
     let provider = match phone_provider().await {
@@ -548,7 +579,7 @@ async fn probe_cmd() -> i32 {
         Err(e) => return fail(Stage::Iphone, &e),
     };
 
-    let state = probe::probe(&provider, MACHINE).await;
+    let state = probe::probe(&provider, &provider.udid, MACHINE).await;
     let code = state.kind().map(Kind::code).unwrap_or("READY");
     let detail = state.detail();
     events::watch_state(code, &detail);
@@ -584,7 +615,7 @@ async fn dev_mode_cmd(reveal: bool) -> i32 {
         }
     };
 
-    let report = devmode::inspect(&provider, MACHINE, reveal).await;
+    let report = devmode::inspect(&provider, &provider.udid, MACHINE, reveal).await;
 
     let watch_code = report.watch.kind().map(Kind::code).unwrap_or("READY");
     let watch_detail = report.watch.detail();

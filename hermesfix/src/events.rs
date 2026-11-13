@@ -110,6 +110,21 @@ pub fn dev_mode_reveal(ok: bool, reason: &str) {
     }));
 }
 
+/// 配对进度。`scope` 是 `phone` 或 `watch`，`state` 是 `waiting` / `ok` / `failed`。
+///
+/// `waiting` 意味着**现在轮到用户在设备上动手**：iPhone 上点「信任」、手表上点「信任」。
+/// 界面必须把这个状态显示出来，否则用户只会看到一段二十几秒的静默然后失败。
+pub fn pair(scope: &str, state: &str, code: &str, detail: &str) {
+    emit(json!({
+        "v": 1,
+        "event": "pair",
+        "scope": scope,
+        "state": state,
+        "code": code,
+        "detail": detail,
+    }));
+}
+
 /// 结构化的失败。字段是对外契约，改名字要同步改界面。
 pub fn failure(f: &crate::diag::Failure) {
     emit(json!({

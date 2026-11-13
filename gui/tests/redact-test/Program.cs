@@ -194,7 +194,30 @@ Check("签名与 iPhone 安装仍然算完成", completedStages.Contains("签名
     string.Join(",", completedStages));
 Check("手表连接检查拿到了锁屏结论", watchCodes.Contains("WATCH_LOCKED"), string.Join(",", watchCodes));
 
-Console.WriteLine("\n=== 8. 开发者模式：三态必须分得开 ===");
+Console.WriteLine("\n=== 8. 配对：手机和手表是两道门 ===");
+
+// 配对失败和「开发者模式没开」是两码事：前者用户要看的是手机/手表上的信任弹窗，
+// 后者要去看设置里的开关。事件里必须能分开读。
+var pairPhone = RunFake(engine, "devmode-pair-phone", "--probe-dev-mode");
+var pairWatch = RunFake(engine, "devmode-pair-watch", "--probe-dev-mode");
+var pairOk = RunFake(engine, "", "--pair-phone");
+
+var phoneWaiting = FindEvents(pairPhone.Output, "pair").FirstOrDefault(e => e.State == "waiting");
+var phoneFailed = FindEvents(pairPhone.Output, "pair").FirstOrDefault(e => e.State == "failed");
+var watchWaiting = FindEvents(pairWatch.Output, "pair").FirstOrDefault(e => e.State == "waiting");
+
+Check("手机待信任：先发 waiting 事件", phoneWaiting?.Scope == "phone", phoneWaiting?.Scope ?? "");
+Check("手机待信任：文案要告诉用户去点信任",
+    (phoneWaiting?.Detail ?? "").Contains("信任"), phoneWaiting?.Detail ?? "");
+Check("手机配对失败：错误码是 PHONE_TRUST_TIMEOUT",
+    phoneFailed?.Code == "PHONE_TRUST_TIMEOUT", phoneFailed?.Code ?? "");
+Check("手机配对失败：退出码 5，不当成「未开启」", pairPhone.Code == 5, $"实际 {pairPhone.Code}");
+Check("手表待信任：scope 是 watch", watchWaiting?.Scope == "watch", watchWaiting?.Scope ?? "");
+Check("配对成功：--pair-phone 退出 0", pairOk.Code == 0, $"实际 {pairOk.Code}");
+Check("配对成功：ok 事件读得出来",
+    FindEvents(pairOk.Output, "pair").Any(e => e.State == "ok"));
+
+Console.WriteLine("\n=== 9. 开发者模式：三态必须分得开 ===");
 
 // 三态里最容易出错的是「手表锁着」被当成「开发者模式没开」——两者的处理
 // 完全相反：一个要让用户去解锁，一个要让用户去翻设置。
@@ -227,7 +250,7 @@ Check("显示入口失败：ok=false 且退出码 5",
     FindEvent(revealFail.Output, "reveal")?.Ok == false && revealFail.Code == 5,
     $"退出码 {revealFail.Code}");
 
-Console.WriteLine("\n=== 9. 结构事件：解析的边界情况 ===");
+Console.WriteLine("\n=== 10. 结构事件：解析的边界情况 ===");
 Check("普通日志不误判", EngineEvents.Parse("[1/5] Signing in to Apple ID ...") == null);
 Check("截断的 JSON 不抛异常", EngineEvents.Parse("@@HF_EVENT@@ {\"v\":1,\"event\":") == null);
 Check("行首有杂音也能定位",
@@ -241,6 +264,17 @@ Console.WriteLine(fail == 0 ? "\n全部通过" : $"\n{fail} 项失败");
 return fail == 0 ? 0 : 1;
 
 // 取最后一条同类事件：引擎只发一条，但解析必须对重复行也稳。
+static List<EngineEvent> FindEvents(string output, string name)
+{
+    var list = new List<EngineEvent>();
+    foreach (var line in output.Split('\n'))
+    {
+        var ev = EngineEvents.Parse(line);
+        if (ev is not null && ev.Event == name) list.Add(ev);
+    }
+    return list;
+}
+
 static EngineEvent? FindEvent(string output, string name)
 {
     EngineEvent? found = null;
