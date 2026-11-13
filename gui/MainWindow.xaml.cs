@@ -165,8 +165,13 @@ public partial class MainWindow : Window
 
     private void UpdateEngineText()
     {
-        EngineText.Text = File.Exists(_engine) ? _engine : "未找到 hermesfix.exe";
-        EngineText.Foreground = File.Exists(_engine) ? Hex("#7C8595") : Hex("#F85149");
+        var exists = File.Exists(_engine);
+        EngineText.Text = Engine.Describe(_engine);
+        // 外部引擎一律给警示色：它可能是旧版，也可能不是本仓库的版本。
+        EngineText.Foreground = !exists ? Hex("#F85149")
+            : Engine.IsEmbeddedCopy(_engine) ? Hex("#7C8595")
+            : Hex("#E3B341");
+        EngineText.ToolTip = exists ? _engine : null;   // 路径放悬浮提示里，底栏没那么宽
     }
 
     // ---------------------------------------------------------------- 表单

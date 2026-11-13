@@ -13,8 +13,43 @@ internal static class Engine
 {
     private const string ResourceName = "hermesfix.exe";
 
+    /// <summary>最近一次释放/校验算出的内嵌哈希；没走释放流程时为 null。</summary>
+    public static string? LastVerifiedHash { get; private set; }
+
     public static bool HasEmbedded =>
         Assembly.GetExecutingAssembly().GetManifestResourceInfo(ResourceName) is not null;
+
+    /// <summary>内嵌引擎会被释放到哪里。只算路径，不触发释放。</summary>
+    public static string EmbeddedPath
+    {
+        get
+        {
+            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0";
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HermesWatch", "engine", "v" + version, ResourceName);
+        }
+    }
+
+    /// <summary>这个路径是不是我们自己释放出来的那一份。</summary>
+    public static bool IsEmbeddedCopy(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try { return string.Equals(Path.GetFullPath(path), EmbeddedPath, StringComparison.OrdinalIgnoreCase); }
+        catch { return false; }
+    }
+
+    /// <summary>给界面看的一行描述：来源 + 版本 + 指纹（只对可信来源给指纹）。</summary>
+    public static string Describe(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return "未找到 hermesfix.exe";
+        if (!IsEmbeddedCopy(path)) return "外部引擎 · 未校验";
+
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0";
+        return LastVerifiedHash is { Length: >= 8 } h
+            ? $"内嵌 v{version} · {h[..8]}"
+            : $"内嵌 v{version}";
+    }
 
     /// <summary>把内嵌引擎释放到磁盘，返回可执行文件路径。失败返回 null。</summary>
     public static string? ExtractEmbedded()
@@ -25,16 +60,12 @@ internal static class Engine
             using var stream = asm.GetManifestResourceStream(ResourceName);
             if (stream is null) return null;
 
-            var version = asm.GetName().Version?.ToString() ?? "0";
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "HermesWatch", "engine", "v" + version);
-            Directory.CreateDirectory(dir);
-
-            var target = Path.Combine(dir, ResourceName);
+            var target = EmbeddedPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             var marker = target + ".sha256";
 
             var hash = Hash(stream);
+            LastVerifiedHash = hash;
             // 标记文件只证明"上次释放过什么"，证明不了"现在磁盘上是什么"。
             // 再算一次实际哈希，堵住同尺寸替换的路子——这个引擎要拿 Apple ID 密码。
             if (File.Exists(target)
