@@ -10,12 +10,9 @@
 use std::time::Duration;
 
 use idevice::{
-    IdeviceService,
     pairing_file::PairingFile,
     provider::IdeviceProvider,
-    services::{
-        amfi::AmfiClient, companion_proxy::CompanionProxy, lockdown::LockdownClient,
-    },
+    services::{amfi::AmfiClient, lockdown::LockdownClient},
 };
 use tracing::info;
 
@@ -104,22 +101,12 @@ pub async fn inspect<P: IdeviceProvider>(
         }
     };
 
-    let mut companion = match CompanionProxy::connect(provider).await {
-        Ok(service) => service,
-        Err(e) => {
-            return Report::skip(
-                WatchState::Unreachable(format!("打不开手表 companion proxy：{e}")),
-                "连不上 iPhone 上的 companion proxy 服务",
-            );
-        }
-    };
-
     let mut ports: Vec<u16> = Vec::new();
-    let report = run(provider, &phone, host_name, reveal, &mut companion, &mut ports).await;
+    let report = run(provider, &phone, host_name, reveal, &mut ports).await;
 
     // 转发出来的端口要收回去，别让 iPhone 一直挂着手表的连接。
     for port in ports.iter().rev() {
-        if let Err(e) = companion.stop_forwarding_service_port(*port).await {
+        if let Err(e) = probe::stop_forward(provider, *port).await {
             info!("停止手表端口 {port} 转发失败：{e}");
         }
     }
@@ -132,11 +119,10 @@ async fn run<P: IdeviceProvider>(
     phone: &PairingFile,
     host_name: &str,
     reveal: bool,
-    companion: &mut CompanionProxy,
     ports: &mut Vec<u16>,
 ) -> Report {
     // 第二道门：手表也要信任这台电脑。缓存命中时手表毫无感知；没有缓存才弹「信任」。
-    let mut lockdown = match probe::open_session(provider, companion, phone, host_name, ports).await {
+    let mut lockdown = match probe::open_session(provider, phone, host_name, ports).await {
         Ok(lockdown) => lockdown,
         Err(state) => {
             let why = match &state {
@@ -159,7 +145,7 @@ async fn run<P: IdeviceProvider>(
             .and_then(|value| value.as_string().map(str::to_string)),
     };
 
-    match open_amfi(provider, companion, &mut lockdown, ports).await {
+    match open_amfi(provider, &mut lockdown, ports).await {
         Ok(mut amfi) => {
             let current = match ask_status(&mut amfi).await {
                 Ok(true) => DevMode::Enabled,
@@ -198,7 +184,6 @@ async fn run<P: IdeviceProvider>(
 /// 打开手表上的 AMFI 服务。它和 lockdown 一样，端口要经过 iPhone 转发一次。
 async fn open_amfi<P: IdeviceProvider>(
     provider: &P,
-    companion: &mut CompanionProxy,
     lockdown: &mut LockdownClient,
     ports: &mut Vec<u16>,
 ) -> Result<AmfiClient, String> {
@@ -207,8 +192,7 @@ async fn open_amfi<P: IdeviceProvider>(
         .await
         .map_err(|e| format!("手表没有暴露 {AMFI_SERVICE} 服务：{e}"))?;
 
-    let local_port = companion
-        .start_forwarding_service_port(remote_port, None, None)
+    let local_port = probe::forward_port(provider, remote_port, None)
         .await
         .map_err(|e| format!("AMFI 服务端口没有转发起来：{e}"))?;
     ports.push(remote_port);

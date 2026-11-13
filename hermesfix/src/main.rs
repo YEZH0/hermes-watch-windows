@@ -23,9 +23,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use idevice::{
-    IdeviceService, provider::IdeviceProvider, services::companion_proxy::CompanionProxy,
-};
+use idevice::{provider::IdeviceProvider};
 use isideload::{
     anisette::remote_v3::RemoteV3AnisetteProvider,
     auth::apple_account::{AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse},
@@ -747,13 +745,9 @@ async fn register_devices(
 
     let watches = paired_watches(provider).await?;
 
-    let mut companion = CompanionProxy::connect(provider)
-        .await
-        .context("failed to open the Apple Watch companion proxy")?;
-
     for watch_udid in &watches {
-        let name = companion
-            .get_value(watch_udid, "DeviceName")
+        // 每条 companion proxy 命令一条新连接，见 `probe` 里的说明。
+        let name = probe::companion_value(provider, watch_udid, "DeviceName")
             .await
             .ok()
             .and_then(|value| value.as_string().map(str::to_string))
@@ -770,12 +764,8 @@ async fn register_devices(
 }
 
 async fn paired_watches(provider: &impl IdeviceProvider) -> Result<Vec<String>, Report> {
-    let mut companion = CompanionProxy::connect(provider)
-        .await
-        .context("failed to open the Apple Watch companion proxy")?;
     // rootcause 的 context 在字面量上会得到 Report<&str>，这里要统一的 Report。
-    Ok(companion
-        .get_device_registry()
+    Ok(probe::companion_registry(provider)
         .await
         .context("failed to list the Apple Watches paired with this iPhone")?)
 }
