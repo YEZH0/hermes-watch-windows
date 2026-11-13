@@ -1,7 +1,9 @@
 [package]
 name = "hermesfix"
-version = "0.1.0"
-edition = "2021"
+version = "1.4.0"
+# 与 isideload 一致：源码里用到了 let chain（if let Some(x) = .. && cond），
+# 这在 2021 edition 下不合法。
+edition = "2024"
 
 [[bin]]
 name = "hermesfix"
@@ -23,11 +25,19 @@ idevice = { version = "0.1.65", default-features = false, features = [
     "rsd",
     "companion_proxy",
 ] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 futures = "0.3"
 rootcause = "0.12"
 tracing = "0.1"
 tracing-subscriber = "0.3"
+# 结构事件用 JSON 一行一条，界面按行解析
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 缓存里签名产物的完整性校验
+sha2 = "0.10"
+# 签名产物自检要自己解 provisioning profile，不能靠 isideload 内部状态
+apple-codesign = { path = "../apple-codesign", package = "apple-codesign" }
+plist = "1.8"
 
 # The signing/install path is invoked a handful of times, so correctness matters
 # and codegen speed does not. Optimising isideload itself dominates the build.
