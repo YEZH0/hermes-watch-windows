@@ -12,11 +12,14 @@ namespace HermesFix;
 /// </summary>
 internal static class LogRedactor
 {
-    // 引擎在 main.rs:162 打的是 number_with_dial_code（完整号码）。
-    // 这一行的形状是固定的，按整行形状改最稳。
+    // 引擎在 main.rs:162 打的是 number_with_dial_code（完整号码），
+    // 后面自己还跟了一个尾号掩码。这一行的形状是固定的，按整行形状改最稳：
     //    trusted number: id=1 +86 13812345678 (***78) push=true
+    //                                             ↓
+    //    trusted number: id=1 (***78) push=true
+    // 中间的完整号码整段抹掉，原本就有的尾号掩码留着——再补一个 *** 是多余的。
     private static readonly Regex TrustedNumber = new(
-        @"(trusted number:\s*id=\d+\s+)(.+?)(\s+\(\*\*\*\d+\))",
+        @"(trusted number:\s*id=\d+)\s+.*?(\(\*\*\*\d+\))",
         RegexOptions.Compiled);
 
     // Apple ID 邮箱：保留首字符和域名，中间抹掉。
@@ -62,7 +65,7 @@ internal static class LogRedactor
                     || text.IndexOf("Users/", StringComparison.Ordinal) >= 0;
         if (!maybe) return text;
 
-        var s = TrustedNumber.Replace(text, "$1***$3");
+        var s = TrustedNumber.Replace(text, "$1 $2");
         s = UserPath.Replace(s, "$1<user>");
         s = DeviceLine.Replace(s, m => m.Groups[1].Value + MaskId(m.Groups[2].Value));
         s = LabelledUdid.Replace(s, m => m.Groups[1].Value + MaskId(m.Groups[2].Value));

@@ -87,6 +87,8 @@ Check("设备 UDID 已掩码", !log.Contains("000A1D2E3F40801E"));
 Console.WriteLine("\n=== 4. 脱敏：该留的留住（否则日志没法排错）===");
 Check("号码行的 id / push 字段保留", log.Contains("id=1") && log.Contains("push=true") && log.Contains("push=false"));
 Check("掩码 ***78 / ***11 保留", log.Contains("(***78)") && log.Contains("(***11)"));
+Check("不出现多余的 *** (***78)", !log.Contains("*** (***"));
+Check("整行收拾干净", log.Contains("trusted number: id=1 (***78) push=true"));
 Check("设备型号保留", log.Contains("using iPhone"));
 Check("UDID 头尾保留，可判断是否同一台", log.Contains("0000") && log.Contains("801E"));
 Check("进度百分比保留", log.Contains("Installing: 97%"));
