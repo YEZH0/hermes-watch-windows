@@ -26,7 +26,7 @@ public partial class CheckWindow : Window
         {
             Rows.Children.Clear();
 
-            _items = await EnvCheck.RunAllAsync(_ipa);
+            _items = await EnvCheck.RunAllAsync(_ipa, probeDevMode: true);
 
             // 上游版本是锦上添花的一行：它出任何问题都不能影响本地这几项的结论，
             // 更不能让整个窗口停在半截。所以这里再兜一层。

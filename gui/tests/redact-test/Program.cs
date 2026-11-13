@@ -194,7 +194,63 @@ Check("签名与 iPhone 安装仍然算完成", completedStages.Contains("签名
     string.Join(",", completedStages));
 Check("手表连接检查拿到了锁屏结论", watchCodes.Contains("WATCH_LOCKED"), string.Join(",", watchCodes));
 
-Console.WriteLine("\n=== 8. 结构事件：解析的边界情况 ===");
+Console.WriteLine("\n=== 8. 配对：手机和手表是两道门 ===");
+
+// 配对失败和「开发者模式没开」是两码事：前者用户要看的是手机/手表上的信任弹窗，
+// 后者要去看设置里的开关。事件里必须能分开读。
+var pairPhone = RunFake(engine, "devmode-pair-phone", "--probe-dev-mode");
+var pairWatch = RunFake(engine, "devmode-pair-watch", "--probe-dev-mode");
+var pairOk = RunFake(engine, "", "--pair-phone");
+
+var phoneWaiting = FindEvents(pairPhone.Output, "pair").FirstOrDefault(e => e.State == "waiting");
+var phoneFailed = FindEvents(pairPhone.Output, "pair").FirstOrDefault(e => e.State == "failed");
+var watchWaiting = FindEvents(pairWatch.Output, "pair").FirstOrDefault(e => e.State == "waiting");
+
+Check("手机待信任：先发 waiting 事件", phoneWaiting?.Scope == "phone", phoneWaiting?.Scope ?? "");
+Check("手机待信任：文案要告诉用户去点信任",
+    (phoneWaiting?.Detail ?? "").Contains("信任"), phoneWaiting?.Detail ?? "");
+Check("手机配对失败：错误码是 PHONE_TRUST_TIMEOUT",
+    phoneFailed?.Code == "PHONE_TRUST_TIMEOUT", phoneFailed?.Code ?? "");
+Check("手机配对失败：退出码 5，不当成「未开启」", pairPhone.Code == 5, $"实际 {pairPhone.Code}");
+Check("手表待信任：scope 是 watch", watchWaiting?.Scope == "watch", watchWaiting?.Scope ?? "");
+Check("配对成功：--pair-phone 退出 0", pairOk.Code == 0, $"实际 {pairOk.Code}");
+Check("配对成功：ok 事件读得出来",
+    FindEvents(pairOk.Output, "pair").Any(e => e.State == "ok"));
+
+Console.WriteLine("\n=== 9. 开发者模式：三态必须分得开 ===");
+
+// 三态里最容易出错的是「手表锁着」被当成「开发者模式没开」——两者的处理
+// 完全相反：一个要让用户去解锁，一个要让用户去翻设置。
+var devOn = RunFake(engine, "", "--probe-dev-mode");
+var devOff = RunFake(engine, "devmode-off", "--probe-dev-mode");
+var devLocked = RunFake(engine, "devmode-locked", "--probe-dev-mode");
+var devUnreachable = RunFake(engine, "devmode-unknown", "--probe-dev-mode");
+var revealOk = RunFake(engine, "", "--reveal-dev-mode");
+var revealFail = RunFake(engine, "devmode-reveal-fail", "--reveal-dev-mode");
+
+var onEvent = FindEvent(devOn.Output, "dev_mode");
+var offEvent = FindEvent(devOff.Output, "dev_mode");
+var lockedEvent = FindEvent(devLocked.Output, "dev_mode");
+
+Check("已开启：退出码 0", devOn.Code == 0, $"实际 {devOn.Code}");
+Check("已开启：state=enabled", onEvent?.State == "enabled", onEvent?.State ?? "");
+Check("未开启：退出码 4", devOff.Code == 4, $"实际 {devOff.Code}");
+Check("未开启：state=disabled", offEvent?.State == "disabled", offEvent?.State ?? "");
+Check("未开启：不拿 unknown 含糊过去", offEvent?.State != "unknown");
+Check("手表锁屏：是 unknown 而不是 disabled",
+    lockedEvent?.State == "unknown", lockedEvent?.State ?? "");
+Check("手表锁屏：连接层原因单独给出来", lockedEvent?.Watch == "WATCH_LOCKED", lockedEvent?.Watch ?? "");
+Check("unknown 必须带原因", (lockedEvent?.Reason ?? "").Length > 0, lockedEvent?.Reason ?? "");
+Check("连不上手表：也是 unknown，不当成没开",
+    FindEvent(devUnreachable.Output, "dev_mode")?.State == "unknown");
+Check("连不上手表：watch 字段是 WATCH_UNREACHABLE",
+    FindEvent(devUnreachable.Output, "dev_mode")?.Watch == "WATCH_UNREACHABLE");
+Check("显示入口成功：ok=true", FindEvent(revealOk.Output, "reveal")?.Ok == true);
+Check("显示入口失败：ok=false 且退出码 5",
+    FindEvent(revealFail.Output, "reveal")?.Ok == false && revealFail.Code == 5,
+    $"退出码 {revealFail.Code}");
+
+Console.WriteLine("\n=== 10. 结构事件：解析的边界情况 ===");
 Check("普通日志不误判", EngineEvents.Parse("[1/5] Signing in to Apple ID ...") == null);
 Check("截断的 JSON 不抛异常", EngineEvents.Parse("@@HF_EVENT@@ {\"v\":1,\"event\":") == null);
 Check("行首有杂音也能定位",
@@ -206,6 +262,29 @@ Check("失败事件里的 recoverable 读得出来",
 
 Console.WriteLine(fail == 0 ? "\n全部通过" : $"\n{fail} 项失败");
 return fail == 0 ? 0 : 1;
+
+// 取最后一条同类事件：引擎只发一条，但解析必须对重复行也稳。
+static List<EngineEvent> FindEvents(string output, string name)
+{
+    var list = new List<EngineEvent>();
+    foreach (var line in output.Split('\n'))
+    {
+        var ev = EngineEvents.Parse(line);
+        if (ev is not null && ev.Event == name) list.Add(ev);
+    }
+    return list;
+}
+
+static EngineEvent? FindEvent(string output, string name)
+{
+    EngineEvent? found = null;
+    foreach (var line in output.Split('\n'))
+    {
+        var ev = EngineEvents.Parse(line);
+        if (ev is not null && ev.Event == name) found = ev;
+    }
+    return found;
+}
 
 // 跑一个指定结局的模拟引擎，返回退出码与 stdout。
 static (int Code, string Output) RunFake(string engine, string scenario, string arg)

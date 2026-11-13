@@ -19,6 +19,16 @@ internal sealed class EngineEvent
     public string Retry { get; init; } = "";
     public string Detail { get; init; } = "";
     public string CacheId { get; init; } = "";
+
+    // 开发者模式检测专用：state 是 enabled/disabled/unknown，reason 说明
+    // 「为什么不知道」，watch 是连接层结论（WATCH_LOCKED / WATCH_UNREACHABLE…）。
+    public string Reason { get; init; } = "";
+    public string Watch { get; init; } = "";
+    public string WatchDetail { get; init; } = "";
+    public bool Ok { get; init; }
+
+    /// <summary>pair 事件里是 phone 或 watch，说明现在轮到谁点「信任」。</summary>
+    public string Scope { get; init; } = "";
 }
 
 internal static class EngineEvents
@@ -64,6 +74,11 @@ internal static class EngineEvents
                 Detail = Str("detail"),
                 // resume 事件里 id 字段是缓存 id；其余事件没有这个键
                 CacheId = Str("id"),
+                Reason = Str("reason"),
+                Watch = Str("watch"),
+                WatchDetail = Str("watch_detail"),
+                Ok = Bool("ok"),
+                Scope = Str("scope"),
             };
         }
         catch (JsonException)

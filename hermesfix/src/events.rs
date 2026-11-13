@@ -80,6 +80,51 @@ pub fn watch_state(code: &str, detail: &str) {
     }));
 }
 
+/// Apple Watch 开发者模式的三态结论。
+///
+/// `state` 只有 `enabled` / `disabled` / `unknown` 三种。`unknown` 一定带
+/// `reason`——界面要能说清「为什么不知道」，而不是把「问不到」当成「没开」。
+/// `watch` 是连接层结论（`WATCH_LOCKED` / `WATCH_UNREACHABLE` / `READY`…），
+/// 用来把「手表锁着」和「模式没开」分开显示。
+pub fn dev_mode(state: &str, reason: &str, watch_code: &str, watch_detail: &str) {
+    emit(json!({
+        "v": 1,
+        "event": "dev_mode",
+        "state": state,
+        "reason": reason,
+        "watch": watch_code,
+        "watch_detail": watch_detail,
+    }));
+}
+
+/// 请求手表显示「开发者模式」设置入口的结果。
+///
+/// `ok = true` 只代表入口显示出来了，**不代表开关已经打开**：用户还要自己进
+/// 设置里拨开关、输入密码、重启手表。界面必须把这句话说全。
+pub fn dev_mode_reveal(ok: bool, reason: &str) {
+    emit(json!({
+        "v": 1,
+        "event": "reveal",
+        "ok": ok,
+        "reason": reason,
+    }));
+}
+
+/// 配对进度。`scope` 是 `phone` 或 `watch`，`state` 是 `waiting` / `ok` / `failed`。
+///
+/// `waiting` 意味着**现在轮到用户在设备上动手**：iPhone 上点「信任」、手表上点「信任」。
+/// 界面必须把这个状态显示出来，否则用户只会看到一段二十几秒的静默然后失败。
+pub fn pair(scope: &str, state: &str, code: &str, detail: &str) {
+    emit(json!({
+        "v": 1,
+        "event": "pair",
+        "scope": scope,
+        "state": state,
+        "code": code,
+        "detail": detail,
+    }));
+}
+
 /// 结构化的失败。字段是对外契约，改名字要同步改界面。
 pub fn failure(f: &crate::diag::Failure) {
     emit(json!({

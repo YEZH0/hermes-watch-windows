@@ -8,6 +8,12 @@
 //   watch-unreachable 手表连不上，退出 3
 //   watch-busy        安装协调器冲突，退出 3
 //   iphone-locked     iPhone 锁屏，iPhone 安装阶段失败，退出 2
+//   devmode-off       开发者模式未开启（--probe-dev-mode 退出 4）
+//   devmode-unknown   读不到开发者模式状态（退出 5）
+//   devmode-locked    手表锁着，读不到状态（退出 5，watch=WATCH_LOCKED）
+//   devmode-reveal-fail 显示开发者模式入口失败（--reveal-dev-mode 退出 5）
+//   devmode-pair-phone   iPhone 还没信任这台电脑，等用户点「信任」等到超时
+//   devmode-pair-watch   手表还没信任这台电脑，等用户在手表上点「信任」
 
 using System.Text;
 
@@ -17,7 +23,10 @@ var argsList = args.ToList();
 // HF_SCENARIO 用来复现故障；一旦「用户」把手表解锁了，测试需要能切回成功路径。
 // 同目录下的 probe-ready.flag 就表示这件事，不必改父进程的环境变量。
 var recovered = File.Exists(Path.Combine(AppContext.BaseDirectory, "probe-ready.flag"));
-var scenario = recovered ? "" : Environment.GetEnvironmentVariable("HF_SCENARIO") ?? "";
+// 开发者模式检测走独立分支：它和「手表是否解锁」不是同一件事，
+// probe-ready.flag 不该把一个「未开启」的场景改写成「已开启」。
+var raw = Environment.GetEnvironmentVariable("HF_SCENARIO") ?? "";
+var scenario = recovered ? "" : raw;
 var resume = argsList.Contains("--resume-watch");
 var probe = argsList.Contains("--probe-watch");
 var ipa = argsList.FirstOrDefault(a => !a.StartsWith("--")) ?? "HermesEnabler.ipa";
@@ -88,6 +97,88 @@ void WatchFailure()
                 "watch_only", 3);
             break;
     }
+}
+
+// ---------------------------------------------------------------- 开发者模式
+
+void PairEvent(string scope, string state, string code, string detail) =>
+    Event("{\"v\":1,\"event\":\"pair\"," +
+          $"\"scope\":\"{scope}\",\"state\":\"{state}\"," +
+          $"\"code\":\"{code}\",\"detail\":\"{detail}\"}}");
+
+void DevModeEvent(string state, string reason, string watch, string detail) =>
+    Event("{\"v\":1,\"event\":\"dev_mode\"," +
+          $"\"state\":\"{state}\",\"reason\":\"{reason}\"," +
+          $"\"watch\":\"{watch}\",\"watch_detail\":\"{detail}\"}}");
+
+if (argsList.Contains("--pair-phone"))
+{
+    if (raw == "devmode-pair-phone")
+    {
+        PairEvent("phone", "waiting", "",
+            "已请求 iPhone 信任这台电脑：解锁 iPhone，在「要信任此电脑吗」弹窗里点「信任」");
+        PairEvent("phone", "failed", "PHONE_TRUST_TIMEOUT",
+            "已经请求 iPhone 信任这台电脑，等了 60 秒没等到「信任」");
+        Out("iPhone 配对失败（PHONE_TRUST_TIMEOUT）");
+        return 2;
+    }
+    PairEvent("phone", "ok", "", "iPhone 已信任这台电脑");
+    Out("iPhone 已信任这台电脑，配对记录已保存。");
+    return 0;
+}
+
+if (argsList.Contains("--probe-dev-mode"))
+{
+    switch (raw)
+    {
+        case "devmode-pair-phone":
+            PairEvent("phone", "waiting", "",
+                "已请求 iPhone 信任这台电脑：解锁 iPhone，在「要信任这台电脑吗」弹窗里点「信任」");
+            PairEvent("phone", "failed", "PHONE_TRUST_TIMEOUT",
+                "已经请求 iPhone 信任这台电脑，等了 60 秒没等到「信任」");
+            DevModeEvent("unknown", "iPhone 还没信任这台电脑（PHONE_TRUST_TIMEOUT）",
+                "WATCH_UNREACHABLE", "");
+            Out("developer mode: unknown — iPhone 还没信任这台电脑");
+            return 5;
+        case "devmode-pair-watch":
+            PairEvent("watch", "waiting", "",
+                "解锁 Apple Watch，屏幕上会弹出「信任这台电脑」，点「信任」");
+            PairEvent("watch", "failed", "WATCH_TRUST_TIMEOUT",
+                "等了 60 秒没等到手表确认「信任」");
+            DevModeEvent("unknown", "手表没有确认信任（WATCH_TRUST_TIMEOUT）",
+                "WATCH_UNREACHABLE", "");
+            Out("developer mode: unknown — 手表没有确认信任");
+            return 5;
+        case "devmode-off":
+            DevModeEvent("disabled", "手表明确回复 developer_mode = false", "READY", "watchOS 11.2");
+            Out("developer mode: disabled — 手表明确回复 developer_mode = false");
+            return 4;
+        case "devmode-unknown":
+            DevModeEvent("unknown", "手表 lockdown 端口连不上（试了 20 次）", "WATCH_UNREACHABLE", "");
+            Out("developer mode: unknown — 手表 lockdown 端口连不上");
+            return 5;
+        case "devmode-locked":
+            DevModeEvent("unknown", "手表处于锁屏状态，先解锁再检测", "WATCH_LOCKED",
+                "watchOS 报告 PasswordProtected（锁屏）");
+            Out("developer mode: unknown — 手表处于锁屏状态，先解锁再检测");
+            return 5;
+        default:
+            DevModeEvent("enabled", "", "READY", "watchOS 11.2");
+            Out("developer mode: enabled — 已开启");
+            return 0;
+    }
+}
+
+if (argsList.Contains("--reveal-dev-mode"))
+{
+    var ok = raw != "devmode-reveal-fail";
+    var reason = ok ? "" : "手表没有接受显示开发者模式入口的请求";
+    Event("{\"v\":1,\"event\":\"reveal\"," +
+          $"\"ok\":{(ok ? "true" : "false")},\"reason\":\"{reason}\"}}");
+    Out(ok
+        ? "已在手表上请求显示「开发者模式」入口，开关仍要手动打开"
+        : "没能让手表显示开发者模式入口，原因见上面的 reason。");
+    return ok ? 0 : 5;
 }
 
 // ---------------------------------------------------------------- 只探测手表

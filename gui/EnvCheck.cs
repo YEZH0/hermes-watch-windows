@@ -34,7 +34,7 @@ internal static class EnvCheck
     private const string KnownIpaSha = "b8cf1cfaa129a61411fc0b7780fe85d2b2f8dab070d01eb8596cf45d883a43f9";
     private const long KnownIpaSize = 959386;
 
-    public static async Task<List<CheckItem>> RunAllAsync(string ipaPath)
+    public static async Task<List<CheckItem>> RunAllAsync(string ipaPath, bool probeDevMode = false)
     {
         var items = new List<CheckItem>
         {
@@ -53,11 +53,39 @@ internal static class EnvCheck
         items.Add(new CheckItem("Anisette 服务", netOk, netDetail,
             netOk == CheckState.Ok ? null : "这是第三方登录辅助服务，不通就没法登录 Apple ID；换网络或稍后重试"));
 
-        items.Add(new CheckItem("手表开发者模式", CheckState.Info,
-            "无法在签名前读取，运行时由日志判定",
-            "日志出现「Device is a development device」即通过；没有就先按 docs/00 阶段 1 打开"));
+        items.Add(await CheckWatchDevModeAsync(probeDevMode));
 
         return items;
+    }
+
+    /// <summary>
+    /// 手表开发者模式。这里和主界面用的是同一套引擎检测（<c>--probe-dev-mode</c>），
+    /// 所以两边结论不会打架。判不出来就写「无法确认」并说明原因——不冒充通过。
+    /// </summary>
+    private static async Task<CheckItem> CheckWatchDevModeAsync(bool probe)
+    {
+        if (!probe)
+            return new CheckItem("手表开发者模式", CheckState.Info,
+                "打开自检窗口会连手表实测",
+                "主界面点「重新检测」也可以测；启动时不主动握手，免得拖慢开机");
+
+        var engine = Engine.Resolve();
+        if (string.IsNullOrWhiteSpace(engine) || !File.Exists(engine))
+            return new CheckItem("手表开发者模式", CheckState.Warn, "没有引擎，这次测不了",
+                "引擎缺失时先解决上面「签名引擎」那一项");
+
+        var result = await DevModeCheck.ProbeAsync(engine);
+        return result.State switch
+        {
+            DevModeState.Enabled => new CheckItem("手表开发者模式", CheckState.Ok,
+                "已开启（手表回复 developer_mode = true）"),
+            DevModeState.Disabled => new CheckItem("手表开发者模式", CheckState.Fail,
+                "未开启（手表回复 developer_mode = false）",
+                "手表上：设置 → 隐私与安全性 → 开发者模式，打开后重启确认；列表里没这一项就点主界面「显示开发者模式入口」"),
+            _ => new CheckItem("手表开发者模式", CheckState.Info,
+                "无法确认：" + result.Reason,
+                "先解锁手表、确认和 iPhone 连着再测；一直问不出来就按 docs/00 阶段 1 手动打开开发者模式"),
+        };
     }
 
     private static CheckItem CheckRuntime()
@@ -84,18 +112,19 @@ internal static class EnvCheck
     private static CheckItem CheckIpa(string ipaPath)
     {
         if (string.IsNullOrWhiteSpace(ipaPath) || !File.Exists(ipaPath))
-            return new CheckItem("签名文件", CheckState.Fail, "还没有选择 .ipa",
-                $"仓库 ipa/HermesEnabler.ipa 就是 {KnownIpaVersion}，直接选它；也可以把文件拖进窗口");
+            return new CheckItem("签名文件", CheckState.Fail, "没找到能签的 .ipa",
+                "正常情况程序自带一份，用不着你去找；真没有就点「选择」指定，或把 .ipa 拖进窗口");
 
         try
         {
             var size = new FileInfo(ipaPath).Length;
+            var source = IpaBundle.IsEmbeddedCopy(ipaPath) ? "程序自带" : Path.GetFileName(ipaPath);
             if (size == KnownIpaSize && Engine.HashFile(ipaPath) == KnownIpaSha)
                 return new CheckItem("签名文件", CheckState.Ok,
-                    $"HermesEnabler {KnownIpaVersion} · {size:N0} 字节 · 指纹匹配");
+                    $"{source} · HermesEnabler {KnownIpaVersion} · 指纹匹配");
 
             return new CheckItem("签名文件", CheckState.Warn,
-                $"{Path.GetFileName(ipaPath)} · {size:N0} 字节 · 与仓库里的 {KnownIpaVersion} 不一致",
+                $"{source} · {size:N0} 字节 · 与仓库里的 {KnownIpaVersion} 不一致",
                 $"不是 {KnownIpaVersion} 也能签，但签名脚本里的 entitlements 是按 {KnownIpaVersion} 的结构验证过的");
         }
         catch (Exception ex)

@@ -23,9 +23,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use idevice::{
-    IdeviceService, provider::IdeviceProvider, services::companion_proxy::CompanionProxy,
-};
+use idevice::{provider::IdeviceProvider};
 use isideload::{
     anisette::remote_v3::RemoteV3AnisetteProvider,
     auth::apple_account::{AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse},
@@ -46,9 +44,11 @@ use rootcause::prelude::*;
 use tracing_subscriber::fmt::MakeWriter;
 
 mod cache;
+mod devmode;
 mod diag;
 mod events;
 mod inspect;
+mod pairing;
 mod preflight;
 mod probe;
 
@@ -148,7 +148,10 @@ async fn main() {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_IPA)),
         ),
+        Some("--pair-phone") => pair_phone_cmd().await,
         Some("--probe-watch") => probe_cmd().await,
+        Some("--probe-dev-mode") => dev_mode_cmd(false).await,
+        Some("--reveal-dev-mode") => dev_mode_cmd(true).await,
         Some("--resume-watch") | Some("--watch-only") => resume_cmd(args.get(1).cloned()).await,
         Some("--purge-cache") => purge_cmd(),
         Some("--help") | Some("-h") => {
@@ -166,10 +169,15 @@ fn print_help() {
     println!("  hermesfix [ipa]            完整流程：登录 → 签名 → iPhone → 手表");
     println!("  hermesfix --resume-watch [缓存id]");
     println!("                             只重跑手表阶段，复用已签名的产物");
+    println!("  hermesfix --pair-phone     让 iPhone 现在就弹出「信任此电脑」并记住这台电脑");
     println!("  hermesfix --probe-watch    只检查手表连通/解锁状态，不装东西");
+    println!("  hermesfix --probe-dev-mode 只读检测手表开发者模式，不装东西");
+    println!("  hermesfix --reveal-dev-mode 请求手表显示「开发者模式」设置入口（不开启）");
     println!("  hermesfix --inspect [ipa]  只读解析 IPA，不登录不联网");
     println!("  hermesfix --purge-cache    删掉本地签名缓存");
+    println!("\n配对记录缓存在 %LOCALAPPDATA%\\HermesWatch\\pairing，删掉它等于「忘记这台电脑」");
     println!("\n退出码：0 成功 / 2 失败 / 3 手表阶段失败（可只重试手表）");
+    println!("        --probe-dev-mode 另有：4 未开启 / 5 无法确认");
 }
 
 // ---------------------------------------------------------------- 完整流程
@@ -375,7 +383,7 @@ async fn full_cmd(ipa: Option<PathBuf>) -> i32 {
     events::stage(Stage::Iphone, "done");
 
     // ---- 4/5 + 5/5 手表
-    install_watch_phase(&provider, &bundle, false).await
+    install_watch_phase(&provider, &provider.udid, &bundle, false).await
 }
 
 /// 手表两段：先确认连得上（并且没有锁屏），再真正安装。
@@ -383,11 +391,16 @@ async fn full_cmd(ipa: Option<PathBuf>) -> i32 {
 /// 之所以先探测：`install_watch_apps` 内部把「连」和「装」揉在一起，
 /// 手表锁着时用户要等它自己超时才看到一句含糊的失败。探测走的是同一条
 /// lockdown 链路，锁屏会立刻返回 `PasswordProtected`，两秒内就能给出结论。
-async fn install_watch_phase(provider: &impl IdeviceProvider, bundle: &Bundle, resumed: bool) -> i32 {
+async fn install_watch_phase(
+    provider: &impl IdeviceProvider,
+    udid: &str,
+    bundle: &Bundle,
+    resumed: bool,
+) -> i32 {
     events::stage(Stage::WatchConnect, "start");
     println!("[4/5] Connecting to the Apple Watch ...");
 
-    if let Err(failure) = ensure_watch_ready(provider).await {
+    if let Err(failure) = ensure_watch_ready(provider, udid).await {
         return report_failure(failure);
     }
     println!("      watch reachable and unlocked");
@@ -431,10 +444,10 @@ async fn install_watch_phase(provider: &impl IdeviceProvider, bundle: &Bundle, r
 }
 
 /// 探测 + 对临时性故障做一次自动重试。锁屏/弹窗这类要用户动手的不重试。
-async fn ensure_watch_ready(provider: &impl IdeviceProvider) -> Result<(), Failure> {
+async fn ensure_watch_ready(provider: &impl IdeviceProvider, udid: &str) -> Result<(), Failure> {
     let mut last = None;
     for attempt in 0..=TRANSIENT_RETRIES {
-        let state = probe::probe(provider, MACHINE).await;
+        let state = probe::probe(provider, udid, MACHINE).await;
         events::watch_state(
             state.kind().map(Kind::code).unwrap_or("READY"),
             &state.detail(),
@@ -531,10 +544,32 @@ async fn resume_cmd(id: Option<String>) -> i32 {
     }
 
     events::resume_used(&saved.id, cache::now() - saved.manifest.created_at);
-    install_watch_phase(&provider, &bundle, true).await
+    install_watch_phase(&provider, &provider.udid, &bundle, true).await
 }
 
 // ---------------------------------------------------------------- 探测 / 清理
+
+/// 让 iPhone 现在就信任这台电脑。
+///
+/// iPhone 从没跟这台机器配过对时，后面全是空谈：拿不到配对记录就连 session 都开不了，
+/// 更够不到手表。所以给它一个能单独跑的入口，界面在检测失败时也能直接调。
+async fn pair_phone_cmd() -> i32 {
+    let provider = match phone_provider().await {
+        Ok(p) => p,
+        Err(e) => return fail(Stage::Iphone, &e),
+    };
+
+    match pairing::phone_pairing(&provider, &provider.udid, MACHINE).await {
+        Ok(_) => {
+            println!("iPhone 已信任这台电脑，配对记录已保存。");
+            0
+        }
+        Err(fail) => {
+            println!("iPhone 配对失败（{}）：{}", fail.code(), fail.detail());
+            2
+        }
+    }
+}
 
 async fn probe_cmd() -> i32 {
     let provider = match phone_provider().await {
@@ -542,7 +577,7 @@ async fn probe_cmd() -> i32 {
         Err(e) => return fail(Stage::Iphone, &e),
     };
 
-    let state = probe::probe(&provider, MACHINE).await;
+    let state = probe::probe(&provider, &provider.udid, MACHINE).await;
     let code = state.kind().map(Kind::code).unwrap_or("READY");
     let detail = state.detail();
     events::watch_state(code, &detail);
@@ -552,6 +587,68 @@ async fn probe_cmd() -> i32 {
         None => 0,
         Some(kind) => diag::exit_code(kind),
     }
+}
+
+/// 只读检测手表的开发者模式；`reveal = true` 时改成「把设置入口显示出来」。
+///
+/// 这两件事必须分开：显示入口是手表弹一个设置项，开关仍然要人自己拨。
+/// 所以这里既不会因为「入口显示成功」就报 enabled，也不会顺手去 enable。
+async fn dev_mode_cmd(reveal: bool) -> i32 {
+    let provider = match phone_provider().await {
+        Ok(p) => p,
+        Err(e) => {
+            // 没有 iPhone 就没有结论，但界面仍需要一条结构化结果：
+            // 「引擎没说话」和「手表没开」在界面上必须区分开。
+            let _ = fail(Stage::Iphone, &e);
+            events::dev_mode(
+                "unknown",
+                "没有找到通过 USB 连接的 iPhone，够不到手表",
+                "IPHONE_UNREACHABLE",
+                "",
+            );
+            if reveal {
+                events::dev_mode_reveal(false, "没有可用的 iPhone 连接");
+            }
+            return devmode::DevMode::Unknown(String::new()).exit_code();
+        }
+    };
+
+    let report = devmode::inspect(&provider, &provider.udid, MACHINE, reveal).await;
+
+    let watch_code = report.watch.kind().map(Kind::code).unwrap_or("READY");
+    let watch_detail = report.watch.detail();
+    events::dev_mode(
+        report.dev.code(),
+        report.dev.reason(),
+        watch_code,
+        &watch_detail,
+    );
+
+    if reveal {
+        events::dev_mode_reveal(
+            report.revealed,
+            if report.revealed { "" } else { report.dev.reason() },
+        );
+    }
+
+    let detail = match &report.dev {
+        devmode::DevMode::Enabled => "已开启".to_string(),
+        other => other.reason().to_string(),
+    };
+    println!(
+        "developer mode: {} — {detail}（手表：{watch_code} {watch_detail}）",
+        report.dev.code()
+    );
+    if reveal {
+        println!("{}", if report.revealed {
+            "已在手表上请求显示「开发者模式」入口：设置 → 隐私与安全性 → 开发者模式。\
+             开关、密码确认和重启都要你自己做——这一步成功了也不等于已经开启。"
+        } else {
+            "没能让手表显示开发者模式入口，原因见上面的 reason。"
+        });
+    }
+
+    report.dev.exit_code()
 }
 
 fn purge_cmd() -> i32 {
@@ -648,13 +745,9 @@ async fn register_devices(
 
     let watches = paired_watches(provider).await?;
 
-    let mut companion = CompanionProxy::connect(provider)
-        .await
-        .context("failed to open the Apple Watch companion proxy")?;
-
     for watch_udid in &watches {
-        let name = companion
-            .get_value(watch_udid, "DeviceName")
+        // 每条 companion proxy 命令一条新连接，见 `probe` 里的说明。
+        let name = probe::companion_value(provider, watch_udid, "DeviceName")
             .await
             .ok()
             .and_then(|value| value.as_string().map(str::to_string))
@@ -671,12 +764,8 @@ async fn register_devices(
 }
 
 async fn paired_watches(provider: &impl IdeviceProvider) -> Result<Vec<String>, Report> {
-    let mut companion = CompanionProxy::connect(provider)
-        .await
-        .context("failed to open the Apple Watch companion proxy")?;
     // rootcause 的 context 在字面量上会得到 Report<&str>，这里要统一的 Report。
-    Ok(companion
-        .get_device_registry()
+    Ok(probe::companion_registry(provider)
         .await
         .context("failed to list the Apple Watches paired with this iPhone")?)
 }

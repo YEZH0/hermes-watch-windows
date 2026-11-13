@@ -391,7 +391,7 @@ fn dir_size(dir: &Path) -> u64 {
 
 /// 去掉继承、只留当前用户。失败不阻断——缓存本身就是本地临时产物，
 /// 但会把结果记进日志，让「权限没收紧」这件事可见。
-fn restrict_permissions(dir: &Path) {
+pub(crate) fn restrict_permissions(dir: &Path) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
