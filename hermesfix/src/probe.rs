@@ -112,7 +112,7 @@ async fn probe_lockdown(
     host_id: String,
     system_buid: String,
 ) -> WatchState {
-    let connection = match connect(provider, port).await {
+    let connection = match connect_port(provider, port).await {
         Ok(connection) => connection,
         Err(e) => return WatchState::Unreachable(e),
     };
@@ -132,7 +132,7 @@ async fn probe_lockdown(
             ));
         }
         Ok(Ok(pairing)) => pairing,
-        Ok(Err(e)) => return classify_device_error(&e),
+        Ok(Err(e)) => return classify_idevice_error(&e),
     };
 
     match tokio::time::timeout(PAIR_TIMEOUT, lockdown.start_session(&pairing)).await {
@@ -145,11 +145,11 @@ async fn probe_lockdown(
                 .and_then(|value| value.as_string().map(str::to_string));
             WatchState::Ready { version }
         }
-        Ok(Err(e)) => classify_device_error(&e),
+        Ok(Err(e)) => classify_idevice_error(&e),
     }
 }
 
-fn classify_device_error(err: &idevice::IdeviceError) -> WatchState {
+pub(crate) fn classify_idevice_error(err: &idevice::IdeviceError) -> WatchState {
     use idevice::IdeviceError;
     match err {
         IdeviceError::PasswordProtected | IdeviceError::DeviceLocked => WatchState::Locked,
@@ -160,7 +160,7 @@ fn classify_device_error(err: &idevice::IdeviceError) -> WatchState {
     }
 }
 
-async fn connect(provider: &impl IdeviceProvider, port: u16) -> Result<Idevice, String> {
+pub(crate) async fn connect_port(provider: &impl IdeviceProvider, port: u16) -> Result<Idevice, String> {
     let mut last = String::new();
     for attempt in 1..=CONNECT_ATTEMPTS {
         match provider.connect(port).await {

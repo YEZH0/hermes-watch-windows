@@ -46,6 +46,7 @@ use rootcause::prelude::*;
 use tracing_subscriber::fmt::MakeWriter;
 
 mod cache;
+mod devmode;
 mod diag;
 mod events;
 mod inspect;
@@ -149,6 +150,8 @@ async fn main() {
                 .unwrap_or_else(|| PathBuf::from(DEFAULT_IPA)),
         ),
         Some("--probe-watch") => probe_cmd().await,
+        Some("--probe-dev-mode") => dev_mode_cmd(false).await,
+        Some("--reveal-dev-mode") => dev_mode_cmd(true).await,
         Some("--resume-watch") | Some("--watch-only") => resume_cmd(args.get(1).cloned()).await,
         Some("--purge-cache") => purge_cmd(),
         Some("--help") | Some("-h") => {
@@ -167,9 +170,12 @@ fn print_help() {
     println!("  hermesfix --resume-watch [缓存id]");
     println!("                             只重跑手表阶段，复用已签名的产物");
     println!("  hermesfix --probe-watch    只检查手表连通/解锁状态，不装东西");
+    println!("  hermesfix --probe-dev-mode 只读检测手表开发者模式，不装东西");
+    println!("  hermesfix --reveal-dev-mode 请求手表显示「开发者模式」设置入口（不开启）");
     println!("  hermesfix --inspect [ipa]  只读解析 IPA，不登录不联网");
     println!("  hermesfix --purge-cache    删掉本地签名缓存");
     println!("\n退出码：0 成功 / 2 失败 / 3 手表阶段失败（可只重试手表）");
+    println!("        --probe-dev-mode 另有：4 未开启 / 5 无法确认");
 }
 
 // ---------------------------------------------------------------- 完整流程
@@ -552,6 +558,68 @@ async fn probe_cmd() -> i32 {
         None => 0,
         Some(kind) => diag::exit_code(kind),
     }
+}
+
+/// 只读检测手表的开发者模式；`reveal = true` 时改成「把设置入口显示出来」。
+///
+/// 这两件事必须分开：显示入口是手表弹一个设置项，开关仍然要人自己拨。
+/// 所以这里既不会因为「入口显示成功」就报 enabled，也不会顺手去 enable。
+async fn dev_mode_cmd(reveal: bool) -> i32 {
+    let provider = match phone_provider().await {
+        Ok(p) => p,
+        Err(e) => {
+            // 没有 iPhone 就没有结论，但界面仍需要一条结构化结果：
+            // 「引擎没说话」和「手表没开」在界面上必须区分开。
+            let _ = fail(Stage::Iphone, &e);
+            events::dev_mode(
+                "unknown",
+                "没有找到通过 USB 连接的 iPhone，够不到手表",
+                "IPHONE_UNREACHABLE",
+                "",
+            );
+            if reveal {
+                events::dev_mode_reveal(false, "没有可用的 iPhone 连接");
+            }
+            return devmode::DevMode::Unknown(String::new()).exit_code();
+        }
+    };
+
+    let report = devmode::inspect(&provider, MACHINE, reveal).await;
+
+    let watch_code = report.watch.kind().map(Kind::code).unwrap_or("READY");
+    let watch_detail = report.watch.detail();
+    events::dev_mode(
+        report.dev.code(),
+        report.dev.reason(),
+        watch_code,
+        &watch_detail,
+    );
+
+    if reveal {
+        events::dev_mode_reveal(
+            report.revealed,
+            if report.revealed { "" } else { report.dev.reason() },
+        );
+    }
+
+    let detail = match &report.dev {
+        devmode::DevMode::Enabled => "已开启".to_string(),
+        other => other.reason().to_string(),
+    };
+    println!(
+        "developer mode: {} — {detail}（手表：{watch_code} {watch_detail}）",
+        report.dev.code()
+    );
+    if reveal {
+        println!("{}", if report.revealed {
+            "已在手表上请求显示「开发者模式」入口：设置 → 隐私与安全性 → 开发者模式。\
+             开关、密码确认和重启都要你自己做——这一步成功了也不等于已经开启。"
+        } else {
+            "没能让手表显示开发者模式入口，原因见上面的 reason。"
+        });
+    }
+
+    report.dev.exit_code()
 }
 
 fn purge_cmd() -> i32 {
