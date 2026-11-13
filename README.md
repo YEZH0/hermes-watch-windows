@@ -66,24 +66,52 @@ flowchart TD
 
 不确定就下第一个。自包含、免安装、不写注册表、不要管理员权限。
 
-当前版本 **v1.3.1**：
+当前版本 **v1.4.0**：
 
 ```
-SHA-256（standalone）: d68debb3adb914bdc5de951558de7f762a7f8a3e3fdfff03348ccf6863bfd227
-SHA-256（26 MB）    : e48b378b19c34e3c2f17ffc874669c7cbb57656c240fab0019206cdd9286a9e0
+SHA-256（standalone）: 0b551c779e2304784b466535af4fd051a073bc533b78c48732fdb823280e6fb4
+SHA-256（26 MB）    : ae6b08de8281fcb61f1a0478f955a232cfac2b52750e02dd23e86f20ef518112
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
 > 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。要出单文件包跑 `scripts\build-gui.cmd`。
-> 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 26 MB 的 1.3.1 包，SHA-256 与 Release 资产一致。
+> 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 26 MB 的 1.4.0 包，SHA-256 与 Release 资产一致。
 
-> **1.3.1 修了两个界面缺陷，并把仓库里的 IPA 换成上游最新的 1.5.4。引擎与签名链路一行未动。**
+> **1.4.0 重写了「手表那步失败」这件事：先告诉你是谁的问题，再让你只重跑那一段。**
+>
+> 以前手表连不上时，引擎只会吐一句 `Failed to pair with the Apple Watch through companion
+> proxy`，界面再翻译成「iPhone 未解锁 / 数据线松了 / 密码错」——明明是最常见的**手表锁屏**，
+> 却让人去查 Apple ID。现在：
+>
+> - 引擎按**错误类型**分类（`IdeviceError::PasswordProtected`、`PairingDialogResponsePending`、
+>   `UserDeniedPairing`、`IXErrorDomain Code=48`…），不再靠字符串猜；每条失败发一行
+>   `@@HF_EVENT@@` JSON，带 `stage / code / title / action / recoverable / retry`。
+> - 进度从 4 段拆成 **5 段**：登录 → 签名 → iPhone 安装 → **Watch 连接** → **Watch 安装**。
+>   装之前先探测手表，锁屏两秒内就能给结论，不用等十几分钟再看一句含糊的失败。
+> - 失败卡片给稳定错误码 + 能照着做的动作（16 种，见
+>   [教程 §8.1](docs/05-使用教程.md)），并按错误码决定提示什么，**不会再把 Watch 问题说成密码错**。
+> - 签名产物会缓存到 `%LOCALAPPDATA%\HermesWatch\signed\<id>`（只授当前用户，无密码/验证码/Token），
+>   手表解锁后点「继续安装到手表」**只重跑第 4、5 段**——不重新登录、不重新申请证书、不重装 iPhone。
+>   复用前重新校验整棵树的哈希和 profile 到期时间，并核对还是不是签名时那两台设备。
+> - 签名产物在交给设备之前先做离线自检（profile 与 bundle 是否对应、设备是否在
+>   `ProvisionedDevices` 里、watch 的 entitlements 是否真带 App Group），把「无法验证 App 完整性」
+>   这种设备端含糊报错提前挡在本地。
+>
+> 引擎版本升到 1.4.0（`hermesfix.exe` 的 SHA-256 从 `700444d3` 变成 `c2abb754`）。
+> **登录、证书复用、App Group、签名这几条核心路径一行未改**，`iloader-main/vendor/` 与
+> `apple-codesign/` 完全没动；改的是错误传播、手表探测、缓存续装与界面。
+
+> **1.4.0 没有用真实 Apple ID 重跑真机安装。** 所有验证都在模拟引擎上完成（锁屏、连不上、
+> 协调器冲突、iPhone 锁屏、续装全流程），**真机上的手表锁屏路径仍需你实测**。真机完整跑通过的
+> 仍是 1.3.1 / 1.5.1 那一组。
+
+> **1.3.1（历史版本）：** 修了两个界面缺陷，并把仓库里的 IPA 换成上游最新的 1.5.4。
 > 一是两步验证码**输入框太矮**：`Height=34` 配上样式里上下各 8 的 `Padding`，内容区只剩 16 px，
 > 15 号字整行被裁掉，打进去的验证码一个字都看不见（功能其实一直是好的，回车能提交）。
 > 二是底栏版本号硬编码在 `v1.2`，现在从程序集读。
 > 三是 `ipa/HermesEnabler.ipa` 从 1.5.1 升到 **1.5.4**，自检的指纹与版本一并跟上——以前这份 IPA
 > 被 `.gitignore` 挡着没入库，别人只能自己去上游下，容易下错版本。
-> 引擎二进制与 1.2.0 / 1.3.0 逐字节相同（`700444d3`）。
+> 1.3.1 的引擎与 1.2.0 / 1.3.0 逐字节相同（`700444d3`）；**1.4.0 换成了 `c2abb754`**。
 
 > **1.3.0 与 1.3.1 都没有用真实 Apple ID 重跑真机签名。** 引擎二进制与 1.2.0 逐字节相同（`700444d3`），
 > 登录、证书、App Groups、签名、安装这条链一行未改，改的全是界面与外设逻辑。要回退就下 v1.2.0。
