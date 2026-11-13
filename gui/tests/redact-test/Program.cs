@@ -108,6 +108,42 @@ Check("空文本不炸", LogRedactor.Redact("") == "");
 Check("错误码不被吃掉",
     LogRedactor.Redact("[FATAL] aborted by user") == "[FATAL] aborted by user");
 
+// ---- 6. 回归：管道把一行切成两半时，号码仍然挡得住 ----
+// 这条是给一个真实踩过的坑兜底：早先从 _pending 里按 40 字符硬切再脱敏，
+// 行被切成两半，正则匹配不到整行，完整号码就这么漏进日志了。
+Console.WriteLine("\n=== 6. 任意切分点都不漏（回归）===");
+
+var sample = string.Concat(
+    "    sms supported : true\n",
+    "    trusted number: id=1 +86 13812345678 (***78) push=true\n",
+    "      using iPhone 00008110-000A1D2E3F40801E\n",
+    "» 账号：demo@example.com\n");
+
+string FeedInPieces(string text, int cut)
+{
+    var buf = new StringBuilder();
+    var outp = new StringBuilder();
+    foreach (var piece in new[] { text[..cut], text[cut..] })
+    {
+        buf.Append(piece);
+        var complete = LineAssembler.TakeCompleteLines(buf);
+        if (complete != null) outp.Append(LogRedactor.Redact(complete));
+    }
+    // 收尾：Stream_FlushPending 走的是同一份 Redact
+    if (buf.Length > 0) outp.Append(LogRedactor.Redact(buf.ToString()));
+    return outp.ToString();
+}
+
+var leaks = new List<int>();
+for (var cut = 1; cut < sample.Length; cut++)
+{
+    var got = FeedInPieces(sample, cut);
+    if (got.Contains("13812345678") || got.Contains("000A1D2E3F40801E") || got.Contains("demo@example.com"))
+        leaks.Add(cut);
+}
+Check($"在全部 {sample.Length - 1} 个切分点上都未泄露", leaks.Count == 0,
+    leaks.Count == 0 ? "" : "泄露切分点 " + string.Join(",", leaks.Take(8)));
+
 Console.WriteLine(fail == 0 ? "\n全部通过" : $"\n{fail} 项失败");
 return fail == 0 ? 0 : 1;
 

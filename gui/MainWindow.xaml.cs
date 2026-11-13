@@ -392,15 +392,13 @@ public partial class MainWindow : Window
 
         _pending.Append(chunk);
 
-        // 提示串不会带换行，靠尾部匹配判断；其余内容及时刷出，保留少量尾巴防止被截断。
-        const int keep = 40;
-        if (_pending.Length > keep)
-        {
-            var flush = _pending.ToString(0, _pending.Length - keep);
-            _pending.Remove(0, flush.Length);
-            AppendLog(flush);
-        }
+        // 按整行刷出，不按长度切。脱敏规则是按一行的形状写的
+        // （"trusted number: id=1 +86 … (***78)"），从中间切成两半分别过正则，
+        // 号码就认不出来了——原先按 40 字符硬切正好踩在这上面。
+        var complete = LineAssembler.TakeCompleteLines(_pending);
+        if (complete != null) AppendLog(complete);
 
+        // 剩下的这段一定不含换行，只可能是提示串——引擎用 print! 打，故意不带换行。
         var tail = _pending.ToString();
         foreach (var marker in CodeMarkers)
         {
