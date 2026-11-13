@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private bool _running;
     private bool _userStopped;
     private int _activeStep;
+    private int _scanPos;          // _logAll 里已经扫描过的位置，只往前推
     private PromptKind _awaiting = PromptKind.None;
     private string _engine = "";
     private readonly StringBuilder? _diag =
@@ -251,6 +252,7 @@ public partial class MainWindow : Window
     {
         LogBox.Clear();
         _logAll.Clear();
+        _scanPos = 0;   // 清的是屏幕，不是进度：游标归零，后面的标记照常认
     }
 
     // ---------------------------------------------------------------- 运行
@@ -391,7 +393,12 @@ public partial class MainWindow : Window
 
     private void ScanSteps()
     {
-        var s = _logAll.ToString();
+        // 只扫新增的那一段：日志会一直变长，全量重扫是 O(n²)；
+        // 而且清空日志后从头扫就再也看不到已经过去的标记了。
+        if (_scanPos >= _logAll.Length) return;
+        var s = _logAll.ToString(_scanPos, _logAll.Length - _scanPos);
+        _scanPos = _logAll.Length;
+
         if (s.Contains("[1/4]")) MarkStep(1);
         if (s.Contains("login ok")) MarkStep(1, true);
         if (s.Contains("[2/4]")) MarkStep(2);
