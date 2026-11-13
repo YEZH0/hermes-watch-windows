@@ -443,6 +443,10 @@
                     <Button x:Name="SelfCheckBtn" Content="环境自检" FontSize="11" Foreground="#F0A25E"
                             Background="Transparent" BorderThickness="0" Cursor="Hand"
                             Click="SelfCheck_Click"/>
+                    <TextBlock Text="·" FontSize="11" Foreground="#3A4353" Margin="8,0"/>
+                    <Button x:Name="ExportLogBtn" Content="导出日志" FontSize="11" Foreground="#8A94A6"
+                            Background="Transparent" BorderThickness="0" Cursor="Hand"
+                            Click="ExportLog_Click"/>
                 </StackPanel>
                 <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
                            Foreground="#4E5764" Text="v1.2 · 免费 Apple ID 自签，7 天需重签一次"/>

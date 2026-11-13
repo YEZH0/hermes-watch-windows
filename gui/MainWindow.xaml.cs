@@ -112,6 +112,39 @@ public partial class MainWindow : Window
 
     private void SelfCheck_Click(object sender, RoutedEventArgs e) => OpenSelfCheck();
 
+    /// <summary>
+    /// 导出当前日志。内容在 AppendLog 时就已经脱敏了，这里只补一段表头说明。
+    /// 只落本地文件，不上传任何地方。
+    /// </summary>
+    private void ExportLog_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Title = "导出脱敏日志",
+            FileName = $"hermes-log-{DateTime.Now:yyyyMMdd-HHmm}.txt",
+            Filter = "文本文件|*.txt|所有文件|*.*",
+            DefaultExt = ".txt",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        try
+        {
+            var head =
+                "HermesFixGui 日志（已脱敏）\r\n" +
+                $"导出时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\n" +
+                "已自动掩码：Apple ID 邮箱、受信任手机号、Windows 用户名。\r\n" +
+                "发出去之前仍建议自己扫一眼。\r\n" +
+                new string('-', 58) + "\r\n\r\n";
+
+            File.WriteAllText(dlg.FileName, head + _logAll.ToString(), new UTF8Encoding(true));
+            SetStatus("日志已导出", "#3FB950");
+        }
+        catch (Exception ex)
+        {
+            Warn("导出失败：" + ex.Message);
+        }
+    }
+
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         SaveSettings();
