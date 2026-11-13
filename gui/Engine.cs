@@ -35,10 +35,13 @@ internal static class Engine
             var marker = target + ".sha256";
 
             var hash = Hash(stream);
+            // 标记文件只证明"上次释放过什么"，证明不了"现在磁盘上是什么"。
+            // 再算一次实际哈希，堵住同尺寸替换的路子——这个引擎要拿 Apple ID 密码。
             if (File.Exists(target)
                 && new FileInfo(target).Length == stream.Length
                 && File.Exists(marker)
-                && File.ReadAllText(marker, Encoding.ASCII).Trim() == hash)
+                && File.ReadAllText(marker, Encoding.ASCII).Trim() == hash
+                && HashFile(target) == hash)
             {
                 return target;
             }
