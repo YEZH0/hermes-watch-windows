@@ -67,6 +67,10 @@ public partial class MainWindow : Window
         _engine = ResolveEngine(st.EnginePath);
         UpdateEngineText();
 
+        // 版本号从程序集读，别再硬编码——底栏挂着一个 v1.2 挂了两个版本。
+        var ver = typeof(MainWindow).Assembly.GetName().Version;
+        FooterVersion.Text = $"v{(ver == null ? "?" : ver.ToString(3))} · 免费 Apple ID 自签，7 天需重签一次";
+
         IpaBox.Text = ResolveIpa(st.LastIpa);
         UpdateIpaHint();
 

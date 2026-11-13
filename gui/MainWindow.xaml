@@ -403,9 +403,12 @@
                                    Text="收不到验证码？它可能落在另一台 iPhone、iPad 或 Mac 上，不一定是你正插着数据线的那台。点「短信」改走短信通道，点「再推送」让 Apple 重发。注意：发到 ≠ 一定送达，Apple 侧也可能限流。"/>
                     </Border>
 
+                    <!-- Padding 必须单独覆盖：InputBox 的 10,8 是给自适应高度用的留白，
+                         但这里固定了 Height=34，上下各 8 会把内容区压到 16px，
+                         15 号字整行被裁掉——输入了却一个字都看不见。 -->
                     <TextBox x:Name="TwoFaInput" Style="{StaticResource InputBox}" Margin="0,9,0,0"
                              Height="34" FontSize="15" MaxLength="24" Tag="6 位验证码"
-                             KeyDown="TwoFaInput_KeyDown"/>
+                             Padding="10,0" KeyDown="TwoFaInput_KeyDown"/>
 
                     <!-- 受信任号码：内容由代码按引擎输出填充，没有号码时整行隐藏 -->
                     <StackPanel x:Name="NumberRow" Orientation="Horizontal" Margin="0,8,0,0"
@@ -448,8 +451,8 @@
                             Background="Transparent" BorderThickness="0" Cursor="Hand"
                             Click="ExportLog_Click"/>
                 </StackPanel>
-                <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
-                           Foreground="#4E5764" Text="v1.2 · 免费 Apple ID 自签，7 天需重签一次"/>
+                <TextBlock x:Name="FooterVersion" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           FontSize="11" Foreground="#4E5764"/>
             </Grid>
         </Border>
     </Grid>

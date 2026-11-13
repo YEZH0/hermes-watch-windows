@@ -65,6 +65,13 @@ public partial class MainWindow
         if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".2fa.png");
 
         TwoFaInput.Text = "123456";
+        // 单独留一张"已输入、未提交"的图：验证码打进去看不见这类问题，
+        // 只有在这个瞬间截图才露得出来。
+        if (!string.IsNullOrEmpty(shot))
+        {
+            await Task.Delay(250);
+            SaveShot(shot + ".typed.png");
+        }
         SubmitCurrent();
 
         if (!await WaitAsync(() => !_running, 30000))
