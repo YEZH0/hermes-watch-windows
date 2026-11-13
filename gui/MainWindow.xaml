@@ -7,6 +7,10 @@
         Background="#0E1116"
         Foreground="#E8ECF2"
         FontFamily="Microsoft YaHei UI, Segoe UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
         AllowDrop="True"
         Drop="Window_Drop"
         DragOver="Window_DragOver">
@@ -236,7 +240,11 @@
 
                     <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="1 · 签名文件"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Style="{StaticResource CardTitle}" Text="1 · 签名文件" Margin="0"/>
+                                <TextBlock Text="选 HermesEnabler.ipa" FontSize="11" Foreground="#5F6875"
+                                           Margin="9,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -255,7 +263,11 @@
 
                     <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="2 · Apple 账号"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Style="{StaticResource CardTitle}" Text="2 · Apple 账号" Margin="0"/>
+                                <TextBlock Text="免费账号即可，签出来 7 天有效" FontSize="11"
+                                           Foreground="#5F6875" Margin="9,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
                             <TextBlock Style="{StaticResource FieldLabel}" Text="Apple ID（邮箱）"/>
                             <TextBox x:Name="EmailBox" Style="{StaticResource InputBox}"/>
                             <TextBlock Style="{StaticResource FieldLabel}" Text="密码" Margin="1,9,0,5"/>
@@ -271,7 +283,11 @@
 
                     <Border Style="{StaticResource CardStyle}" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource CardTitle}" Text="3 · 开始"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Style="{StaticResource CardTitle}" Text="3 · 开始" Margin="0"/>
+                                <TextBlock Text="全程别拔线" FontSize="11" Foreground="#5F6875"
+                                           Margin="9,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
                             <Button x:Name="StartBtn" Content="开始签名并安装" Height="44"
                                     Style="{StaticResource PrimaryButton}" Click="Start_Click"/>
                             <Grid Margin="0,9,0,0">
@@ -287,7 +303,7 @@
                                         Click="OpenFolder_Click"/>
                             </Grid>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,10,0,0"
-                                       Text="签名期间保持 iPhone 解锁并插着数据线，手表放在充电器上。"/>
+                                       Text="签名期间保持 iPhone 解锁并插着数据线，手表放在充电器上。跑完还要去手表上打开确认，那一步电脑替不了。"/>
                         </StackPanel>
                     </Border>
 
@@ -321,21 +337,34 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <Grid Grid.Row="0" Margin="16,12,10,10">
-                            <TextBlock Text="运行日志" FontSize="12" Foreground="{StaticResource TextDim}"
-                                       VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="运行日志" FontSize="12" Foreground="{StaticResource TextDim}"/>
+                                <TextBlock Text="技术细节，签不过时再看" FontSize="10.5"
+                                           Foreground="#4E5764" Margin="9,0,0,0"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
                             <Button Content="清空" Style="{StaticResource GhostButton}" Padding="10,3"
                                     FontSize="11" HorizontalAlignment="Right" Click="ClearLog_Click"/>
                         </Grid>
 
                         <TextBox x:Name="LogBox" Grid.Row="1" IsReadOnly="True" AcceptsReturn="True"
-                                 Background="#0A0D12" Foreground="#C7D0DC" BorderThickness="0"
+                                 Background="#0A0D12" Foreground="#B4BFCE" BorderThickness="0"
                                  Padding="14,10" FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI"
-                                 FontSize="12" TextWrapping="NoWrap"
+                                 FontSize="11.5" TextWrapping="NoWrap"
                                  VerticalScrollBarVisibility="Auto"
                                  HorizontalScrollBarVisibility="Auto"/>
+
+                        <!-- 完成判定说明：电脑端跑完不等于手表端生效，这两件事分开验证。 -->
+                        <Border Grid.Row="2" Background="#12161C" BorderBrush="{StaticResource Line}"
+                                BorderThickness="0,1,0,0" Padding="16,9">
+                            <TextBlock FontSize="10.5" Foreground="#6B7686" TextWrapping="Wrap"
+                                       LineHeight="16"
+                                       Text="这里显示的是电脑端的过程。进程正常退出，只代表签名和安装指令已经走完；手表上到底生效没有，要拿起手表打开 HermesEnabler 看一眼——不再报 App Group 错误，才算真的成功。"/>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>
@@ -364,6 +393,16 @@
                     <TextBlock x:Name="TwoFaHint" FontSize="11" Foreground="#9B8360"
                                Margin="0,3,0,0" TextWrapping="Wrap"
                                Text="Apple 默认发「推送」到受信任设备，不一定是短信。也可以输入 sms 1 指定号码。"/>
+
+                    <!-- 常驻说明：这段不会被代码覆盖，专门回答"为什么收不到验证码"。
+                         TwoFaHint 每个提示状态都会重写，所以不能往它里面塞。 -->
+                    <Border Background="#191308" BorderBrush="#3A2A12" BorderThickness="1"
+                            CornerRadius="6" Padding="9,7" Margin="0,7,0,0">
+                        <TextBlock FontSize="10.5" Foreground="#8C7A5C" TextWrapping="Wrap"
+                                   LineHeight="16"
+                                   Text="收不到验证码？它可能落在另一台 iPhone、iPad 或 Mac 上，不一定是你正插着数据线的那台。点「短信」改走短信通道，点「再推送」让 Apple 重发。注意：发到 ≠ 一定送达，Apple 侧也可能限流。"/>
+                    </Border>
+
                     <TextBox x:Name="TwoFaInput" Style="{StaticResource InputBox}" Margin="0,9,0,0"
                              Height="34" FontSize="15" MaxLength="24" Tag="6 位验证码"
                              KeyDown="TwoFaInput_KeyDown"/>

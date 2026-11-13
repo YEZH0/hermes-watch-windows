@@ -2,10 +2,13 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="环境自检"
-        Height="640" Width="760" MinHeight="420" MinWidth="620"
+        Height="700" Width="800" MinHeight="440" MinWidth="640"
         WindowStartupLocation="CenterOwner"
         Background="#0E1116" Foreground="#E8ECF2"
         FontFamily="Microsoft YaHei UI, Segoe UI"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Display"
         ShowInTaskbar="False">
 
     <Window.Resources>
@@ -57,6 +60,18 @@
             <TextBlock x:Name="Subtitle" FontSize="11.5" Foreground="{StaticResource TextDim}"
                        Margin="0,5,0,0" TextWrapping="Wrap"
                        Text="检查签名前能确定的部分。判不了的项会标成「需人工」，不会假装通过。"/>
+
+            <!-- 四项判据的边界。这段是静态文字，不参与检测逻辑，
+                 只负责让"通过"不被读成"一定没问题"。 -->
+            <Border Background="#12161C" BorderBrush="{StaticResource Line}" BorderThickness="1"
+                    CornerRadius="8" Padding="13,10" Margin="0,11,0,0">
+                <StackPanel>
+                    <TextBlock Text="判据只说明条件成立，不等于结果一定成功：" FontSize="11"
+                               Foreground="#7C8595" Margin="0,0,0,6"/>
+                    <TextBlock FontSize="11" Foreground="#6B7686" TextWrapping="Wrap" LineHeight="18"
+                               Text="· 「iPhone 连接服务」通过 = Windows 这边的 Apple 服务在跑，不代表手机已经插好并点了「信任此电脑」&#10;· 「Anisette 服务」通过 = 地址连得上，不代表你的 Apple ID 一定能登录成功，账号侧还可能触发额外验证&#10;· 「手表开发者模式」只能你自己去手表上看，标成「需人工」不是报错，是它确实无法远程判定"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -64,14 +79,26 @@
         </ScrollViewer>
 
         <Grid Grid.Row="2" Margin="0,14,0,0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                 <Button x:Name="RerunBtn" Content="重新检测" Style="{StaticResource GhostButton}"
                         Click="Rerun_Click"/>
                 <Button Content="复制报告" Style="{StaticResource GhostButton}" Margin="8,0,0,0"
                         Click="Copy_Click"/>
             </StackPanel>
-            <Button Content="关闭" Style="{StaticResource GhostButton}"
-                    HorizontalAlignment="Right" Click="Close_Click"/>
+
+            <!-- 与 EnvCheck.Report 的实际输出保持一致：只有结论 + IPA 文件名。 -->
+            <TextBlock Grid.Column="1" FontSize="10.5" Foreground="#4E5764" TextWrapping="Wrap"
+                       VerticalAlignment="Center" Margin="14,0,12,0"
+                       Text="报告只含各项结论与 IPA 文件名，不含 Apple ID、密码、验证码或设备序列号。"/>
+
+            <Button Grid.Column="2" Content="关闭" Style="{StaticResource GhostButton}"
+                    VerticalAlignment="Center" Click="Close_Click"/>
         </Grid>
     </Grid>
 </Window>

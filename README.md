@@ -73,6 +73,10 @@ SHA-256（standalone）: 9d8476916acb745057b7a9636693ea117bd77135b43724345984f9a
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
 > 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。
 
+> **工具和 IPA 是两个东西。** exe 是签名工具，**不含**表盘；`HermesEnabler.ipa` 才是装到手表上的
+> 应用。两者版本号不需要对齐。本仓库实测通过的是 HermesEnabler **1.5.1**；上游的新版本通常也能签，
+> 但没有经过本项目的真机验证——自检里提示「与已知 1.5.1 不一致」是提醒，不是阻止。
+
 ---
 
 ## 快速使用
@@ -267,8 +271,14 @@ python .\scripts\verify_appgroup.py .\HermesEnabler.ipa
 
 - **只在 Windows x64 + 免费个人团队 + watchOS 27 上实测通过。** 付费团队理论上同样适用，但未验证。
 - **重签不会解决"账号被风控"类错误**（`-80045` / `-45061`）。那类问题出在 anisette 数据与 client-info 来源不一致，与本补丁无关。
+- **两步验证的边界在 Apple 手里。** 验证码只会推到你账号的**受信任设备**——不一定是连着电脑的那台
+  iPhone，也可能是另一台 iPhone、iPad 或 Mac。「再推送」「短信」只是向 Apple 发请求，
+  **点了不等于一定送达**；账号被限流时越点越糟。详见 [docs/05-使用教程.md](docs/05-使用教程.md#7-开始然后等-6-位码)。
 - **anisette 走公共实例 `ani.jkcoxson.com`。** 该实例偶尔不稳定，失败重试即可。
 - 本仓库**不包含** HermesEnabler.ipa，请自行从上游 release 获取并核对哈希。也**不要**把签名后的 IPA 公开上传——里面的 provisioning profile 含你的 Team ID 与证书。
+- **这是非官方工具。** 它不在 Apple 的授权范围内，走的是 Apple 公开接口的第三方实现。签名行为受开发者
+  协议约束，修改系统表盘属于非官方用途。账号风险、设备风险、7 天过期，都得自己承担。别用它签你不拥有的
+  Apple ID。
 
 ## 免责声明
 
