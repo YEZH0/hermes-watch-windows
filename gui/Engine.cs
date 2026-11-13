@@ -46,9 +46,10 @@ internal static class Engine
         if (!IsEmbeddedCopy(path)) return "外部引擎 · 未校验";
 
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0";
+        // 指纹只在「这一轮确实算过」时才给，否则就是没校验，别写得像校验过了。
         return LastVerifiedHash is { Length: >= 8 } h
             ? $"内嵌 v{version} · {h[..8]}"
-            : $"内嵌 v{version}";
+            : $"内嵌 v{version} · 未校验";
     }
 
     /// <summary>把内嵌引擎释放到磁盘，返回可执行文件路径。失败返回 null。</summary>
