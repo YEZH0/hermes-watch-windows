@@ -61,21 +61,21 @@ flowchart TD
 
 | 文件 | 大小 | 需要装 .NET 吗 |
 | --- | --- | --- |
-| **HermesFixGui-standalone.exe** | 68 MB | **不需要**，双击就跑 |
-| HermesFixGui.exe | 26 MB | 需要 .NET 9 桌面运行时（x64） |
+| **HermesFixGui-standalone.exe** | 69 MB | **不需要**，双击就跑 |
+| HermesFixGui.exe | 28 MB | 需要 .NET 9 桌面运行时（x64） |
 
 不确定就下第一个。自包含、免安装、不写注册表、不要管理员权限。
 
 当前版本 **v1.5.0**：
 
 ```
-SHA-256（standalone）: e4cfa8d905280f1b2e27bedd4948eda01ce934d71835d43a095253cea3ad085b
-SHA-256（26 MB）    : 26f41203d0b4de17b59d350fa75a64b2c0daa801d1205adc5343398e268338a3
+SHA-256（standalone）: 5b69a2dd1e37fb2915c0c9ed43f2266cceda9b3394e4866f150b84ea0f68a61c
+SHA-256（28 MB）    : e692a96e42e62a1bb0885e18a042441889bab6c71c475be011be1f0299b15648
 ```
 
 > 或者自己编：`dotnet build gui/HermesFix.csproj -c Release`，零第三方 NuGet 依赖。
 > 引擎 `bin/hermesfix.exe` 会被作为资源嵌进去。要出单文件包跑 `scripts\build-gui.cmd`。
-> 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 26 MB 的 1.5.0 包。
+> 仓库里的 `bin/HermesFixGui.exe` 就是上面那个 28 MB 的 1.5.0 包。
 
 > **1.5.0 在签名之前先问手表一句：开发者模式到底开了没有。**
 >
@@ -163,10 +163,10 @@ SHA-256（26 MB）    : 26f41203d0b4de17b59d350fa75a64b2c0daa801d1205adc5343398e
 
 ![图形界面](docs/images/gui.png)
 
-`HermesFixGui-standalone.exe` 是**单个文件**，签名引擎已经内嵌在里面（首次启动释放到
-`%LOCALAPPDATA%\HermesWatch`，带 SHA-256 校验）。三步：
+`HermesFixGui-standalone.exe` 是**单个文件**，签名引擎和要签的 `HermesEnabler.ipa` 都在里面
+（首次启动释放到 `%LOCALAPPDATA%\HermesWatch`，都带 SHA-256 校验）。三步：
 
-1. 选 `HermesEnabler.ipa`（也可以直接把文件拖进窗口）
+1. **不用管 `HermesEnabler.ipa`** —— 程序自带，启动时自己放好并填进「1 · 签名文件」，绿字写着「程序自带 · 已就绪」
 2. 填 Apple ID 与密码
 3. 点「开始签名并安装」
 
@@ -185,7 +185,7 @@ iPhone 连接服务、Anisette 服务、上游 HermesEnabler 的最新版本（�
 
 界面上方五个进度块对应引擎的五个阶段，状态栏会显示当前卡在哪一步。中途可以「停止」（会连子进程一起结束）。
 
-- 两个版本功能一样：`standalone`（68 MB）自带运行时，`HermesFixGui.exe`（26 MB）需要
+- 两个版本功能一样：`standalone`（69 MB）自带运行时，`HermesFixGui.exe`（28 MB）需要
   **.NET 9 桌面运行时**（约 55 MB，一次装好）。要自己产 standalone，跑 `scripts\build-gui.cmd`
   最后一条命令
 - 源码在 `gui/`，`dotnet build` 即可，**零第三方 NuGet 依赖**
