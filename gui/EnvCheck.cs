@@ -72,7 +72,9 @@ internal static class EnvCheck
             return new CheckItem("签名引擎", CheckState.Fail, "没有找到 hermesfix.exe",
                 "这个版本本应自带引擎；若被安全软件删掉，请重新下载");
         var mb = new FileInfo(path).Length / 1024.0 / 1024.0;
-        return new CheckItem("签名引擎", CheckState.Ok, $"{mb:F1} MB · {path}");
+        // 完整路径里的 Windows 用户名不该出现在界面上——「复制报告」会原样把它带出去，
+        // 而这个报告本来就是准备发给别人看的。走和日志导出同一套掩码。
+        return new CheckItem("签名引擎", CheckState.Ok, $"{mb:F1} MB · {LogRedactor.Redact(path)}");
     }
 
     private static CheckItem CheckIpa(string ipaPath)

@@ -98,6 +98,13 @@ Check(@"C:\Users\张三\x → <user>",
     LogRedactor.Redact(@"见 C:\Users\张三\.cargo\config") == @"见 C:\Users\<user>\.cargo\config");
 Check("正斜杠路径同样处理",
     LogRedactor.Redact("path C:/Users/someone/app") == "path C:/Users/<user>/app");
+// 环境自检里显示引擎位置用的就是这一串，它会跟着「复制报告」发出去
+Check("引擎真实路径里的用户名被抹掉",
+    LogRedactor.Redact(@"26.3 MB · C:\Users\张三\AppData\Local\hermes-watch-windows\engine\hermesfix.exe")
+        == @"26.3 MB · C:\Users\<user>\AppData\Local\hermes-watch-windows\engine\hermesfix.exe");
+Check("抹掉用户名后仍能看出装在哪一级目录",
+    LogRedactor.Redact(@"C:\Users\张三\AppData\Local\hermes-watch-windows\engine\hermesfix.exe")
+        .EndsWith(@"\AppData\Local\hermes-watch-windows\engine\hermesfix.exe"));
 Check("老式 40 位 UDID 也挡住",
     !LogRedactor.Redact("using iPhone 0000803000A1B2C3D4E5F60718293A4B5C6D7E8F").Contains("D4E5F60718293A4B5C6D7E8F"));
 Check("带 udid: 标签的形式挡住",

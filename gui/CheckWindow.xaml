@@ -92,10 +92,10 @@
                         Click="Copy_Click"/>
             </StackPanel>
 
-            <!-- 与 EnvCheck.Report 的实际输出保持一致：只有结论 + IPA 文件名。 -->
+            <!-- 与 EnvCheck.Report 的实际输出保持一致：结论 + IPA 文件名 + 引擎位置（用户名已掩码）。 -->
             <TextBlock Grid.Column="1" FontSize="10.5" Foreground="#4E5764" TextWrapping="Wrap"
                        VerticalAlignment="Center" Margin="14,0,12,0"
-                       Text="报告只含各项结论与 IPA 文件名，不含 Apple ID、密码、验证码或设备序列号。"/>
+                       Text="报告只含各项结论、IPA 文件名和引擎位置，其中路径里的用户名已替换为 &lt;user&gt;；不含 Apple ID、密码、验证码或设备序列号。"/>
 
             <Button Grid.Column="2" Content="关闭" Style="{StaticResource GhostButton}"
                     VerticalAlignment="Center" Click="Close_Click"/>
