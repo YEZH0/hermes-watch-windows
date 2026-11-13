@@ -14,5 +14,6 @@
     <Compile Include="..\..\LogRedactor.cs" Link="LogRedactor.cs" />
     <Compile Include="..\..\TwoFactorPanel.cs" Link="TwoFactorPanel.cs" />
     <Compile Include="..\..\LineAssembler.cs" Link="LineAssembler.cs" />
+    <Compile Include="..\..\EngineEvents.cs" Link="EngineEvents.cs" />
   </ItemGroup>
 </Project>

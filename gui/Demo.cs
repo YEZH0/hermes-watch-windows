@@ -49,6 +49,13 @@ public partial class MainWindow
             return;
         }
 
+        // 上一次自测可能留下了「手表已解锁」标记，先清掉，从故障状态开始。
+        var engineDir = Path.GetDirectoryName(_engine);
+        if (!string.IsNullOrEmpty(engineDir))
+        {
+            try { File.Delete(Path.Combine(engineDir, "probe-ready.flag")); } catch { }
+        }
+
         EmailBox.Text = "demo@example.com";
         PwdBox.Password = "demo-password";
         Start_Click(this, new RoutedEventArgs());
@@ -88,7 +95,61 @@ public partial class MainWindow
             SaveShot(shot + ".done.png");
             DumpDiag(shot + ".diag.txt");
         }
+
+        // HF_DEMO_RETRY=1：手表阶段失败后，模拟「用户把手表解锁了」，
+        // 走一遍「重新检查 → 继续安装到手表」，验证续装链路。
+        if (Environment.GetEnvironmentVariable("HF_DEMO_RETRY") == "1")
+        {
+            await RunRetryAsync(shot);
+        }
+
         Application.Current.Shutdown();
+    }
+
+    private async Task RunRetryAsync(string? shot)
+    {
+        var engineDir = Path.GetDirectoryName(_engine);
+        if (string.IsNullOrEmpty(engineDir)) return;
+        var flag = Path.Combine(engineDir, "probe-ready.flag");
+
+        try
+        {
+            // 这个标记由测试替身自己读：文件在，就当作手表已经解锁。
+            File.WriteAllText(flag, "unlocked");
+            AppendLog("\r\n» [自测] 模拟已解锁手表，点「我已处理，重新检查」\r\n");
+
+            Recheck_Click(this, new RoutedEventArgs());
+            if (!await WaitAsync(() => ResumeBtn.IsEnabled, 25000))
+            {
+                AppendLog("» [自测] 重新检查没有通过\r\n");
+                if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".recheck-fail.png");
+                return;
+            }
+
+            await Task.Delay(250);
+            if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".recheck.png");
+
+            AppendLog("» [自测] 点「继续安装到手表」\r\n");
+            ResumeWatch_Click(this, new RoutedEventArgs());
+            if (!await WaitAsync(() => !_running && _engineDone, 30000))
+            {
+                AppendLog("» [自测] 续装没有按时结束\r\n");
+                if (!string.IsNullOrEmpty(shot)) SaveShot(shot + ".resume-fail.png");
+                return;
+            }
+
+            await Task.Delay(350);
+            if (!string.IsNullOrEmpty(shot))
+            {
+                SaveShot(shot + ".resumed.png");
+                DumpDiag(shot + ".retry-diag.txt");
+            }
+        }
+        finally
+        {
+            // 这个标记会把测试替身切到"永远成功"，留着会污染后续的无头测试。
+            try { File.Delete(flag); } catch { }
+        }
     }
 
     private void DumpDiag(string path)

@@ -38,6 +38,11 @@ var psi = new ProcessStartInfo(engine)
 };
 psi.Environment["HERMES_EMAIL"] = "demo@example.com";
 
+// 演示脚本会在模拟引擎旁边放一个 probe-ready.flag，用来模拟"手表已解锁"。
+// 那个标记一存在，替身就会忽略 HF_SCENARIO 直接成功，把这里的故障用例全带偏。
+var staleFlag = Path.Combine(Path.GetDirectoryName(engine)!, "probe-ready.flag");
+if (File.Exists(staleFlag)) File.Delete(staleFlag);
+
 using var p = Process.Start(psi)!;
 
 var raw = new StringBuilder();     // 对应 MainWindow.xaml.cs 的 _rawErr（留原文，供解析）
@@ -74,7 +79,7 @@ await p.WaitForExitAsync();
 Check("退出码为 0", p.ExitCode == 0, $"实际 {p.ExitCode}");
 var log = shown.ToString();
 Check("验证码 123456 未出现在日志里", !log.Contains("123456"));
-Check("四步标记全部走完", log.Contains("[1/4]") && log.Contains("[2/4]") && log.Contains("[3/4]") && log.Contains("[4/4]"));
+Check("五步标记全部走完", log.Contains("[1/5]") && log.Contains("[2/5]") && log.Contains("[3/5]") && log.Contains("[4/5]") && log.Contains("[5/5]"));
 Check("成功标记在（判成功要靠它）", log.Contains("App signed!") && log.Contains("login ok"));
 
 Console.WriteLine("\n=== 3. 脱敏：该挡的挡住 ===");
@@ -112,7 +117,7 @@ Check("带 udid: 标签的形式挡住",
 Check("大写 UDID 标签同样认",
     !LogRedactor.Redact("UDID=00008110-000A1D2E3F40801E").Contains("000A1D2E3F40801E"));
 Check("普通文本原样返回（不误伤）",
-    LogRedactor.Redact("[2/4] Creating developer session ...") == "[2/4] Creating developer session ...");
+    LogRedactor.Redact("[2/5] Signing the app (watch App Groups) ...") == "[2/5] Signing the app (watch App Groups) ...");
 Check("空文本不炸", LogRedactor.Redact("") == "");
 Check("错误码不被吃掉",
     LogRedactor.Redact("[FATAL] aborted by user") == "[FATAL] aborted by user");
@@ -153,8 +158,77 @@ for (var cut = 1; cut < sample.Length; cut++)
 Check($"在全部 {sample.Length - 1} 个切分点上都未泄露", leaks.Count == 0,
     leaks.Count == 0 ? "" : "泄露切分点 " + string.Join(",", leaks.Take(8)));
 
+Console.WriteLine("\n=== 7. 结构事件：手表锁屏要被认成 WATCH_LOCKED ===");
+var locked = RunFake(engine, "watch-locked", "");
+
+EngineEvent? failureEvent = null;
+var completedStages = new List<string>();
+var watchCodes = new List<string>();
+var sawDone = false;
+
+foreach (var line in locked.Output.Split('\n'))
+{
+    var ev = EngineEvents.Parse(line);
+    if (ev == null) continue;
+    switch (ev.Event)
+    {
+        case "failure": failureEvent = ev; break;
+        case "stage" when ev.State == "done": completedStages.Add(ev.StageLabel); break;
+        case "watch": watchCodes.Add(ev.Code); break;
+        case "done": sawDone = true; break;
+    }
+}
+
+Check("退出码 3（手表阶段失败但可续装）", locked.Code == 3, $"实际 {locked.Code}");
+Check("收到 failure 事件", failureEvent != null);
+Check("错误码是 WATCH_LOCKED", failureEvent?.Code == "WATCH_LOCKED", $"实际 {failureEvent?.Code}");
+Check("失败落在 watch_connect 阶段", failureEvent?.Stage == "watch_connect", $"实际 {failureEvent?.Stage}");
+Check("标了可续装（retry=watch_only）", failureEvent?.Retry == "watch_only", $"实际 {failureEvent?.Retry}");
+Check("标题说的是手表解锁，不是 Apple ID",
+    (failureEvent?.Title ?? "").Contains("手表") && !(failureEvent?.Title ?? "").Contains("Apple ID"),
+    failureEvent?.Title ?? "");
+Check("给的是「在手表上输入密码」这种能照做的动作",
+    (failureEvent?.Action ?? "").Contains("解锁"), failureEvent?.Action ?? "");
+Check("没有 done 事件（不能假装装完）", !sawDone);
+Check("签名与 iPhone 安装仍然算完成", completedStages.Contains("签名") && completedStages.Contains("iPhone 安装"),
+    string.Join(",", completedStages));
+Check("手表连接检查拿到了锁屏结论", watchCodes.Contains("WATCH_LOCKED"), string.Join(",", watchCodes));
+
+Console.WriteLine("\n=== 8. 结构事件：解析的边界情况 ===");
+Check("普通日志不误判", EngineEvents.Parse("[1/5] Signing in to Apple ID ...") == null);
+Check("截断的 JSON 不抛异常", EngineEvents.Parse("@@HF_EVENT@@ {\"v\":1,\"event\":") == null);
+Check("行首有杂音也能定位",
+    EngineEvents.Parse("噪音 @@HF_EVENT@@ {\"v\":1,\"event\":\"done\"}")?.Event == "done");
+Check("阶段名到步骤号的映射",
+    EngineEvents.StepIndex("login") == 1 && EngineEvents.StepIndex("watch_install") == 5 && EngineEvents.StepIndex("???") == 0);
+Check("失败事件里的 recoverable 读得出来",
+    failureEvent is { Recoverable: true });
+
 Console.WriteLine(fail == 0 ? "\n全部通过" : $"\n{fail} 项失败");
 return fail == 0 ? 0 : 1;
+
+// 跑一个指定结局的模拟引擎，返回退出码与 stdout。
+static (int Code, string Output) RunFake(string engine, string scenario, string arg)
+{
+    var psi = new ProcessStartInfo(engine)
+    {
+        RedirectStandardInput = true,
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+        StandardOutputEncoding = Encoding.UTF8,
+        CreateNoWindow = true,
+    };
+    psi.Environment["HERMES_EMAIL"] = "demo@example.com";
+    if (scenario.Length > 0) psi.Environment["HF_SCENARIO"] = scenario;
+    if (arg.Length > 0) psi.ArgumentList.Add(arg);
+
+    using var p = Process.Start(psi)!;
+    var reader = p.StandardOutput.ReadToEndAsync();
+    Thread.Sleep(600);
+    try { p.StandardInput.WriteLine("123456"); p.StandardInput.Flush(); } catch { /* 探测流程不读 stdin */ }
+    if (!p.WaitForExit(20000)) { try { p.Kill(true); } catch { } }
+    return (p.ExitCode, reader.GetAwaiter().GetResult());
+}
 
 // 从测试程序所在目录往回找 fake-engine 的产物
 static string? FindEngine()

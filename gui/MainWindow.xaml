@@ -197,6 +197,7 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- ============ 顶栏 ============ -->
@@ -322,13 +323,16 @@
                         <TextBlock Style="{StaticResource StepText}" Text="1 · 登录 Apple"/>
                     </Border>
                     <Border Style="{StaticResource StepChip}">
-                        <TextBlock Style="{StaticResource StepText}" Text="2 · 开发者会话"/>
+                        <TextBlock Style="{StaticResource StepText}" Text="2 · 签名"/>
                     </Border>
                     <Border Style="{StaticResource StepChip}">
-                        <TextBlock Style="{StaticResource StepText}" Text="3 · 找到设备"/>
+                        <TextBlock Style="{StaticResource StepText}" Text="3 · iPhone 安装"/>
                     </Border>
                     <Border Style="{StaticResource StepChip}">
-                        <TextBlock Style="{StaticResource StepText}" Text="4 · 签名安装"/>
+                        <TextBlock Style="{StaticResource StepText}" Text="4 · Watch 连接"/>
+                    </Border>
+                    <Border Style="{StaticResource StepChip}">
+                        <TextBlock Style="{StaticResource StepText}" Text="5 · Watch 安装"/>
                     </Border>
                 </StackPanel>
 
@@ -370,8 +374,52 @@
             </Grid>
         </Grid>
 
+        <!-- ============ 失败卡片 ============ -->
+        <Border x:Name="FailureCard" Grid.Row="2" Margin="26,14,26,0" Visibility="Collapsed"
+                Background="#1C1213" BorderBrush="#5A2020" BorderThickness="1" CornerRadius="10"
+                Padding="16,14">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="26" Height="26" CornerRadius="13" Background="#3A1A1A" Margin="0,0,10,0"
+                            VerticalAlignment="Top">
+                        <TextBlock Text="!" Foreground="#F85149" FontSize="14" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="FailureTitle" FontSize="13.5" FontWeight="SemiBold"
+                                   Foreground="#FF9B95" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="FailureCode" FontSize="10.5" Foreground="#8A6A6A" Margin="0,3,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock x:Name="FailureAction" FontSize="12" Foreground="#DCC6C4" Margin="36,9,0,0"
+                           TextWrapping="Wrap" LineHeight="19"/>
+
+                <StackPanel Orientation="Horizontal" Margin="36,12,0,0">
+                    <Button x:Name="RecheckBtn" Content="我已处理，重新检查" Style="{StaticResource PrimaryButton}"
+                            Height="30" Padding="14,0" FontSize="12" Margin="0,0,8,0"
+                            Click="Recheck_Click"/>
+                    <Button x:Name="ResumeBtn" Content="继续安装到手表" Style="{StaticResource GhostButton}"
+                            Height="30" Padding="12,0" FontSize="12" Margin="0,0,8,0"
+                            Click="ResumeWatch_Click"/>
+                    <Button x:Name="DetailBtn" Content="查看技术详情" Style="{StaticResource GhostButton}"
+                            Height="30" Padding="12,0" FontSize="12" Margin="0,0,8,0"
+                            Click="ToggleDetail_Click"/>
+                    <Button Content="导出脱敏日志" Style="{StaticResource GhostButton}"
+                            Height="30" Padding="12,0" FontSize="12"
+                            Click="ExportLog_Click"/>
+                </StackPanel>
+
+                <TextBox x:Name="FailureDetail" Visibility="Collapsed" IsReadOnly="True"
+                         Background="#120C0C" Foreground="#A29191" BorderBrush="#3A2020"
+                         FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI" FontSize="10.5"
+                         Height="118" Margin="36,10,0,0" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" Padding="8,6"/>
+            </StackPanel>
+        </Border>
+
         <!-- ============ 2FA 交互条 ============ -->
-        <Border x:Name="TwoFaBar" Grid.Row="2" Margin="26,14,26,0" Visibility="Collapsed"
+        <Border x:Name="TwoFaBar" Grid.Row="3" Margin="26,14,26,0" Visibility="Collapsed"
                 Background="#1D1710" BorderBrush="#5A3A16" BorderThickness="1" CornerRadius="10"
                 Padding="16,13">
             <Grid>
@@ -434,7 +482,7 @@
         </Border>
 
         <!-- ============ 底部 ============ -->
-        <Border Grid.Row="3" Padding="26,12,26,14">
+        <Border Grid.Row="4" Padding="26,12,26,14">
             <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="签名引擎：" FontSize="11" Foreground="#5F6875"/>

@@ -27,6 +27,11 @@ public partial class MainWindow : Window
     private int _scanPos;          // _logAll 里已经扫描过的位置，只往前推
     private PromptKind _awaiting = PromptKind.None;
     private string _engine = "";
+    private EngineEvent? _failure;          // 最近一次结构化失败；null 表示没收到
+    private bool _engineDone;               // 引擎自己报了 done，才算成功
+    private bool _resumeAvailable;          // 签名产物已落盘，可以只重跑手表
+    private bool _watchReady;               // 重新检查过、手表确实连上了
+    private string _cacheId = "";
     private readonly StringBuilder? _diag =
         Environment.GetEnvironmentVariable("HF_DIAG") is null ? null : new StringBuilder();
 
@@ -169,8 +174,12 @@ public partial class MainWindow : Window
 
     private string ResolveEngine(string? remembered)
     {
-        // 手动换过引擎就尊重用户的选择
-        if (!string.IsNullOrWhiteSpace(remembered) && File.Exists(remembered))
+        // 手动换过引擎就尊重用户的选择。但记下来的如果正好是我们自己释放的那一份，
+        // 就不能直接拿来用——那会绕过 Engine.Resolve 里的哈希校验，
+        // 而这个文件要接收 Apple ID 密码。
+        if (!string.IsNullOrWhiteSpace(remembered)
+            && File.Exists(remembered)
+            && !Engine.IsEmbeddedCopy(remembered))
             return remembered;
 
         // 内嵌引擎优先：这才是"只需一个 exe"的来源
@@ -315,6 +324,22 @@ public partial class MainWindow : Window
 
         SaveSettings();
 
+        _failure = null;
+        _engineDone = false;
+        _resumeAvailable = false;
+        _watchReady = false;
+        _cacheId = "";
+        FailureCard.Visibility = Visibility.Collapsed;
+
+        BeginRun();
+        AppendLog("\r\n──────────────────────────────────────────────\r\n");
+        AppendLog($"» 签名引擎：{_engine}\r\n» 目标文件：{ipa}\r\n» 账号：{email}\r\n\r\n");
+
+        LaunchEngine(new[] { ipa }, email, pwd);
+    }
+
+    private void BeginRun()
+    {
         _running = true;
         _userStopped = false;
         StartBtn.IsEnabled = false;
@@ -322,17 +347,20 @@ public partial class MainWindow : Window
         SetFormEnabled(false);
         ResetSteps();
         SetStatus("正在启动", "#F2731C");
-        AppendLog("\r\n──────────────────────────────────────────────\r\n");
-        AppendLog($"» 签名引擎：{_engine}\r\n» 目标文件：{ipa}\r\n» 账号：{email}\r\n\r\n");
+    }
 
-        // 关键：stdout 与 stderr 是两条独立管道，谁先到谁后到没有保证，
-        // 直接分别读会把 2FA 提示块排到 "[1/4]" 前面。用 cmd 的 2>&1 并成一条流，
-        // 顺序就与引擎写入的顺序完全一致。
+    /// <summary>
+    /// 启动引擎。stdout 与 stderr 是两条独立管道，谁先到谁后到没有保证，
+    /// 直接分别读会把 2FA 提示块排到进度行前面——用 cmd 的 2>&1 并成一条流。
+    /// </summary>
+    private void LaunchEngine(IReadOnlyList<string> args, string? email = null, string? pwd = null)
+    {
         var comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+        var quoted = string.Join(' ', args.Select(a => $"\"{a}\""));
         var psi = new ProcessStartInfo
         {
             FileName = comspec,
-            Arguments = $"/d /s /c \"\"{_engine}\" \"{ipa}\" 2>&1\"",
+            Arguments = $"/d /s /c \"\"{_engine}\" {quoted} 2>&1\"",
             WorkingDirectory = Path.GetDirectoryName(_engine) ?? AppContext.BaseDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -341,8 +369,8 @@ public partial class MainWindow : Window
             StandardOutputEncoding = new UTF8Encoding(false),
         };
         // 密码只通过子进程环境变量传递，不落盘、不进日志。
-        psi.Environment["HERMES_EMAIL"] = email;
-        psi.Environment["HERMES_PW"] = pwd;
+        if (email != null) psi.Environment["HERMES_EMAIL"] = email;
+        if (pwd != null) psi.Environment["HERMES_PW"] = pwd;
 
         PwdBox.Clear();
         _pending.Clear();
@@ -429,7 +457,30 @@ public partial class MainWindow : Window
     private void AppendLog(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+
+        // 结构事件是给界面看的契约，不该作为一行 JSON 混进技术日志。
+        // 读事件放在脱敏之前：detail 里可能带 UDID，但显示前仍会走脱敏。
+        text = text.Replace("\r\n", "\n");
+        if (text.Contains(EngineEvents.Prefix, StringComparison.Ordinal))
+        {
+            var kept = new StringBuilder();
+            int pos = 0;
+            while (pos < text.Length)
+            {
+                int nl = text.IndexOf('\n', pos);
+                int end = nl < 0 ? text.Length : nl;
+                var line = text[pos..end];
+                var ev = EngineEvents.Parse(line);
+                if (ev != null) HandleEvent(ev);
+                else { kept.Append(line); if (nl >= 0) kept.Append('\n'); }
+                if (nl < 0) break;
+                pos = nl + 1;
+            }
+            text = kept.ToString();
+            if (text.Length == 0) return;
+        }
+
+        text = text.Replace("\n", "\r\n");
         text = LogRedactor.Redact(text);   // 屏幕、_logAll、以后的导出，都是同一份
         _logAll.Append(text);
         LogBox.AppendText(text);
@@ -447,14 +498,16 @@ public partial class MainWindow : Window
         var s = _logAll.ToString(_scanPos, _logAll.Length - _scanPos);
         _scanPos = _logAll.Length;
 
-        if (s.Contains("[1/4]")) MarkStep(1);
+        if (s.Contains("[1/5]")) MarkStep(1);
         if (s.Contains("login ok")) MarkStep(1, true);
-        if (s.Contains("[2/4]")) MarkStep(2);
-        if (s.Contains("session ok")) MarkStep(2, true);
-        if (s.Contains("[3/4]")) MarkStep(3);
-        if (s.Contains("using iPhone")) MarkStep(3, true);
-        if (s.Contains("[4/4]")) MarkStep(4);
-        if (s.Contains("[DONE]")) MarkStep(4, true);
+        if (s.Contains("[2/5]")) MarkStep(2);
+        if (s.Contains("App signed")) MarkStep(2, true);
+        if (s.Contains("[3/5]")) MarkStep(3);
+        if (s.Contains("iPhone install ok")) MarkStep(3, true);
+        if (s.Contains("[4/5]")) MarkStep(4);
+        if (s.Contains("watch reachable")) MarkStep(4, true);
+        if (s.Contains("[5/5]")) MarkStep(5);
+        if (s.Contains("[DONE]")) MarkStep(5, true);
         if (s.Contains("[FATAL]")) MarkFailure();
     }
 
@@ -474,7 +527,7 @@ public partial class MainWindow : Window
                 PaintChip(chips[i], "idle");
         }
 
-        if (!done) SetStatus($"第 {index} / 4 步", "#F2731C");
+        if (!done) SetStatus($"第 {index} / 5 步", "#F2731C");
     }
 
     private void MarkFailure()
@@ -483,6 +536,199 @@ public partial class MainWindow : Window
         if (_activeStep >= 1 && _activeStep <= chips.Length)
             PaintChip(chips[_activeStep - 1], "fail");
         SetStatus("失败", "#F85149");
+    }
+
+    // ---------------------------------------------------------------- 结构事件
+
+    private void HandleEvent(EngineEvent ev)
+    {
+        switch (ev.Event)
+        {
+            case "stage":
+                var step = EngineEvents.StepIndex(ev.Stage);
+                if (step > 0) MarkStep(step, ev.State == "done");
+                if (ev.State == "start" && ev.StageLabel.Length > 0)
+                    SetStatus($"{ev.StageLabel}…", "#F2731C");
+                break;
+
+            case "resume":
+                _resumeAvailable = true;
+                if (ev.CacheId.Length > 0) _cacheId = ev.CacheId;
+                break;
+
+            case "watch":
+                _watchReady = ev.Code == "READY";
+                break;
+
+            case "failure":
+                _failure = ev;
+                ShowFailure(ev);
+                break;
+
+            case "done":
+                _engineDone = true;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 把结构化失败画成卡片。这里绝不默认提示「检查 Apple ID 密码」——
+    /// 到底该做什么，由引擎给出的错误码决定。
+    /// </summary>
+    private void ShowFailure(EngineEvent ev)
+    {
+        var step = EngineEvents.StepIndex(ev.Stage);
+        if (step > 0) _activeStep = step;
+        MarkFailure();
+
+        FailureTitle.Text = ev.Title.Length > 0 ? ev.Title : "安装没有走完";
+        var suffix = ev.Recoverable ? " · 处理完可以重试" : " · 需要先解决这个问题";
+        FailureCode.Text = $"错误码 {ev.Code} · 阶段 {ev.StageLabel}{suffix}";
+        FailureAction.Text = ev.Action.Length > 0 ? ev.Action : "看技术详情里的原始错误链。";
+        FailureDetail.Text = BuildFailureDetail(ev);
+        FailureDetail.Visibility = Visibility.Collapsed;
+        DetailBtn.Content = "查看技术详情";
+
+        bool watchProblem = ev.Stage.StartsWith("watch", StringComparison.Ordinal);
+        // 手表阶段失败时，「重新检查」才对症；别让用户去改 Apple ID。
+        RecheckBtn.Visibility = watchProblem ? Visibility.Visible : Visibility.Collapsed;
+        RecheckBtn.IsEnabled = watchProblem;
+        ResumeBtn.Visibility = ev.Retry == "watch_only" && _resumeAvailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ResumeBtn.IsEnabled = false;   // 必须先通过「重新检查」
+
+        FailureCard.Visibility = Visibility.Visible;
+        SetStatus(watchProblem ? "手表没装完" : "失败", "#F85149");
+    }
+
+    private string BuildFailureDetail(EngineEvent ev)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"code    : {ev.Code}");
+        sb.AppendLine($"stage   : {ev.Stage}");
+        sb.AppendLine($"retry   : {ev.Retry}");
+        sb.AppendLine($"cache   : {(_cacheId.Length > 0 ? _cacheId : "<none>")}");
+        if (ev.Detail.Length > 0) sb.AppendLine($"detail  : {ev.Detail}");
+        sb.AppendLine();
+        sb.AppendLine("—— 最近的原始输出 ——");
+
+        var lines = _rawErr.ToString().Replace("\r\n", "\n").Split('\n');
+        foreach (var line in lines.Skip(Math.Max(0, lines.Length - 24)))
+        {
+            if (line.Trim().Length == 0) continue;
+            sb.AppendLine(LogRedactor.Redact(line));
+        }
+        return sb.ToString();
+    }
+
+    private async void Recheck_Click(object sender, RoutedEventArgs e)
+    {
+        if (_running) return;
+        if (!File.Exists(_engine)) { Warn("没有找到 hermesfix.exe，请点右下角「更换」指定。"); return; }
+
+        RecheckBtn.IsEnabled = false;
+        ResumeBtn.IsEnabled = false;
+        SetStatus("正在检查手表", "#F2731C");
+        AppendLog("» 重新检查手表状态…\r\n");
+
+        var (code, output) = await RunEngineOnceAsync(new[] { "--probe-watch" });
+        AppendLog(output);
+
+        EngineEvent? failure = null;
+        string? watch = null;
+        foreach (var line in output.Split('\n'))
+        {
+            var ev = EngineEvents.Parse(line);
+            if (ev == null) continue;
+            if (ev.Event == "failure") failure = ev;
+            else if (ev.Event == "watch") watch = ev.Code;
+        }
+
+        if (watch == "READY")
+        {
+            _watchReady = true;
+            // 连接这一步已经通过，别让第 4 个步骤还挂着红色。
+            _activeStep = 4;
+            MarkStep(4, true);
+            FailureTitle.Text = "手表已解锁并连上，可以继续安装";
+            FailureCode.Text = "手表连接检查通过 · 不需要重新登录 Apple ID";
+            FailureAction.Text = _resumeAvailable
+                ? "点「继续安装到手表」，复用上次签好的产物，只跑手表这一步。"
+                : "签名产物已经不在了，需要重新完整安装一次。";
+            ResumeBtn.Visibility = _resumeAvailable ? Visibility.Visible : Visibility.Collapsed;
+            ResumeBtn.IsEnabled = _resumeAvailable;
+            RecheckBtn.IsEnabled = true;
+            SetStatus("手表就绪", "#3FB950");
+            return;
+        }
+
+        _watchReady = false;
+        if (failure != null)
+        {
+            ShowFailure(failure);
+            RecheckBtn.IsEnabled = true;
+            return;
+        }
+
+        FailureTitle.Text = "手表还没准备好";
+        FailureAction.Text = code == 2
+            ? "先确认 iPhone 用数据线连着、已解锁并点了「信任」，再检查一次。"
+            : "把手表解锁、戴在手上、贴近 iPhone 后再检查一次。";
+        RecheckBtn.IsEnabled = true;
+        SetStatus("手表还没就绪", "#F85149");
+    }
+
+    private void ResumeWatch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_running || !File.Exists(_engine)) return;
+
+        FailureCard.Visibility = Visibility.Collapsed;
+        _failure = null;
+        _engineDone = false;
+        _watchReady = false;
+
+        BeginRun();
+        AppendLog("\r\n──────────────────────────────────────────────\r\n");
+        AppendLog("» 只重跑手表阶段：复用上次的签名产物，不重新登录 Apple ID。\r\n\r\n");
+        LaunchEngine(new[] { "--resume-watch" });
+    }
+
+    private void ToggleDetail_Click(object sender, RoutedEventArgs e)
+    {
+        bool show = FailureDetail.Visibility != Visibility.Visible;
+        FailureDetail.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        DetailBtn.Content = show ? "收起技术详情" : "查看技术详情";
+    }
+
+    /// <summary>跑一次短命引擎（探测用），不进主日志管道。</summary>
+    private async Task<(int Code, string Output)> RunEngineOnceAsync(IReadOnlyList<string> args)
+    {
+        var comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+        var quoted = string.Join(' ', args.Select(a => $"\"{a}\""));
+        var psi = new ProcessStartInfo
+        {
+            FileName = comspec,
+            Arguments = $"/d /s /c \"\"{_engine}\" {quoted} 2>&1\"",
+            WorkingDirectory = Path.GetDirectoryName(_engine) ?? AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            StandardOutputEncoding = new UTF8Encoding(false),
+        };
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc == null) return (2, "无法启动签名引擎");
+            var output = await proc.StandardOutput.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+            return (proc.ExitCode, output);
+        }
+        catch (Exception ex)
+        {
+            return (2, $"无法启动签名引擎：{ex.Message}");
+        }
     }
 
     private static void PaintChip(Border chip, string state)
@@ -673,19 +919,41 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool ok = code == 0 && _logAll.ToString().Contains("[DONE]");
+        // 成功只认引擎自己说的：退出码 0 且收到 done 事件（旧引擎退回看 [DONE]）。
+        bool ok = code == 0 && (_engineDone || _logAll.ToString().Contains("[DONE]"));
         AppendLog($"\r\n» 进程已退出，退出码 {code}\r\n");
 
         if (ok)
         {
             AppendLog("» 签名与安装已完成。接下来在手表上：HermesEnabler → Backup MG → 打开爱马仕表盘 → Restart Carousel。\r\n");
+            FailureCard.Visibility = Visibility.Collapsed;
             Finish(true, "完成");
+            return;
         }
-        else
+
+        if (_failure != null)
         {
-            AppendLog("» 没有走完。常见原因：iPhone 未解锁 / 数据线松了 / 账号密码错 / 验证码超时。\r\n");
-            Finish(false, code == 0 ? "未完成" : $"失败（{code}）");
+            // 已经有结构化结论：卡片里写的就是具体原因，不要再泛泛提示账号密码。
+            FailureCard.Visibility = Visibility.Visible;
+            Finish(false, code == 3 ? "手表没装完" : $"失败（{code}）");
+            return;
         }
+
+        AppendLog("» 没有走完，具体原因见上面的日志。\r\n");
+        if (code == 3)
+        {
+            // 引擎明确说了「手表阶段没成」，但这一版没有给出可读原因。
+            FailureTitle.Text = "iPhone 装好了，手表没装完";
+            FailureCode.Text = "阶段 Watch · 没有拿到更细的错误码";
+            FailureAction.Text = "先解锁手表、保持贴近 iPhone，再点「重新检查」；确认没问题后再点「继续安装到手表」。";
+            FailureDetail.Text = "（没有结构化错误；看上面的运行日志。）";
+            RecheckBtn.Visibility = Visibility.Visible;
+            RecheckBtn.IsEnabled = true;
+            ResumeBtn.Visibility = _resumeAvailable ? Visibility.Visible : Visibility.Collapsed;
+            ResumeBtn.IsEnabled = _resumeAvailable;
+            FailureCard.Visibility = Visibility.Visible;
+        }
+        Finish(false, code == 3 ? "手表没装完" : code == 0 ? "未完成" : $"失败（{code}）");
     }
 
     private void Stop_Click(object sender, RoutedEventArgs e)
